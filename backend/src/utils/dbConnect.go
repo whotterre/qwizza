@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log"
 )
+// Database cursor instance 
+var DB *sql.DB
+
 // Utility to connect to the database
 func ConnectToDB(db_url string) {
 	
@@ -14,8 +17,9 @@ func ConnectToDB(db_url string) {
 		log.Fatal("Couldn't connect to database", err)
 	}
 
-	if err := db.Ping(); err != nil {
+	if err := DB.Ping(); err != nil {
 		log.Fatal(err)
 	}
+	DB = db
 	fmt.Println("Successfully connected to the database")
 }
