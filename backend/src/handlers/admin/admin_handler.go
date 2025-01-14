@@ -147,13 +147,13 @@ func HandleAdminLogin(dbi *sql.DB) http.HandlerFunc {
 		// Generate JWT token
 		claims := &Claims{
 			Email: user.Email,
-			Role:  role,
+			Role:  "admin",
 			RegisteredClaims: jwt.RegisteredClaims{
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)), // Token expires in 24 hours
-				Issuer:    "qwizza",                                           // Your app's name
+				Issuer:    "qwizza",                                          
 			},
 		}
-		jwtSecretKey := os.Getenv("JWT_SECRET")
+		jwtSecretKey := []byte(os.Getenv("JWT_SECRET"))
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, err := token.SignedString(jwtSecretKey)
 		if err != nil {
