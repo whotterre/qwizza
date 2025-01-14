@@ -54,7 +54,7 @@
   "error": "Info on the database error"
 }
 ---
-
+```
 ## Setup & Installation
 
 ### Prerequisites
