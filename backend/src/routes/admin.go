@@ -9,6 +9,7 @@ import (
 
 func RegisterAdminRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.HandleFunc("/admin/signup", admin.HandleAdminSignup(db))
+	mux.HandleFunc("/admin/login", admin.HandleAdminLogin(db))
 	// mux.HandleFunc("/admin/quizzes", nil)
 	// mux.HandleFunc("/admin/questions", nil)
 }
