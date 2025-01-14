@@ -26,182 +26,33 @@
 ---
 
 ## API Endpoints
+### Admin
 
-### POST /auth/login
+### POST /admin/signup
 **Login (returns JWT token).**
 
 **Request Body**:
 ```json
 {
-  "username": "admin",
-  "password": "password"
+  "username": "username",
+  "password": "password",
+  "email" : "jackdoe@gmail.com",
+  "phone" : "+234987373723",
 }
 ```
 
-**Response**:
-- JWT token for authentication.
-
----
-
-### GET /quizzes
-**List all quizzes (for admin and students).**
-
-**Response**:
-```json
-[
-  {
-    "id": 1,
-    "title": "Math Quiz",
-    "description": "A quiz about math",
-    "number_of_questions": 10
-  },
-  {
-    "id": 2,
-    "title": "Science Quiz",
-    "description": "A quiz about science",
-    "number_of_questions": 12
-  }
-]
-```
-
----
-
-### POST /quizzes
-**Admin creates a new quiz.**
-
-**Request Body**:
-```json
+**Successful Response - 200**:
+```json 
 {
-  "title": "New Quiz",
-  "description": "Quiz description here"
+  "message": "Admin signup successful"
 }
 ```
-
-**Response**:
-```json
+**Response Fraught with Error - 500**:
+```json 
 {
-  "id": 3,
-  "title": "New Quiz",
-  "description": "Quiz description here"
+  "message": "Database error",
+  "error": "Info on the database error"
 }
-```
-
----
-
-### GET /quizzes/{id}
-**Get details of a single quiz (questions).**
-
-**Response**:
-```json
-{
-  "id": 1,
-  "title": "Math Quiz",
-  "description": "A quiz about math",
-  "questions": [
-    {
-      "id": 1,
-      "text": "What is 2 + 2?",
-      "options": ["2", "3", "4", "5"],
-      "correct_answer": 3
-    },
-    {
-      "id": 2,
-      "text": "What is 3 + 5?",
-      "options": ["6", "7", "8", "9"],
-      "correct_answer": 3
-    }
-  ]
-}
-```
-
----
-
-### POST /quizzes/{id}/answers
-**Submit answers for a quiz.**
-
-**Request Body**:
-```json
-{
-  "answers": [3, 2, 1]  // Indices of selected answers for each question.
-}
-```
-
-**Response**:
-```json
-{
-  "score": 85
-}
-```
-
----
-
-### POST /questions
-**Admin creates a new question for a quiz.**
-
-**Request Body**:
-```json
-{
-  "text": "What is 5 + 7?",
-  "options": ["10", "11", "12", "13"],
-  "correct_answer": 3,
-  "quiz_id": 1
-}
-```
-
-**Response**:
-```json
-{
-  "id": 5,
-  "text": "What is 5 + 7?",
-  "options": ["10", "11", "12", "13"],
-  "correct_answer": 3,
-  "quiz_id": 1
-}
-```
-
----
-
-### GET /users
-**List all students (admin only).**
-
-**Response**:
-```json
-[
-  {
-    "id": 1,
-    "username": "student1",
-    "email": "student1@example.com"
-  },
-  {
-    "id": 2,
-    "username": "student2",
-    "email": "student2@example.com"
-  }
-]
-```
-
----
-
-### POST /users
-**Admin creates a new student user (optional).**
-
-**Request Body**:
-```json
-{
-  "username": "student3",
-  "password": "password123"
-}
-```
-
-**Response**:
-```json
-{
-  "id": 3,
-  "username": "student3",
-  "email": "student3@example.com"
-}
-```
-
 ---
 
 ## Setup & Installation
@@ -213,11 +64,11 @@
 ### Installation Steps
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/quiz-app-api.git
+   git clone https://github.com/whotterre/qwizza
    ```
 2. Navigate to the project folder:
    ```bash
-   cd quiz-app-api
+   cd qwizza
    ```
 3. Install Go dependencies:
    ```bash

@@ -12,7 +12,7 @@ type User struct {
 	ID          int       `json:"user_id"`
 	Username    string    `json:"username"`
 	Email       string    `json:"email"`
-	PhoneNumber string    `json:"phone_number,omitempty"` // Make phone number optional
+	Phone		string    `json:"phone"` // Make phone number optional
 	Password    string    `json:"password"`
 	Role        string    `json:"role"`
 	CreatedAt   time.Time `json:"created_at"`
