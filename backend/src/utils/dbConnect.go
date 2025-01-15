@@ -2,23 +2,26 @@ package utils
 
 import (
 	"database/sql"
-	_ "github.com/go-sql-driver/mysql" 
 	"fmt"
 	"log"
+
+	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )
-// Database cursor instance 
+
+// Database cursor instance
 var DB *sql.DB
 
-// Utility to connect to the database
-func ConnectToDB(db_url string) {
+// ConnectToDB connects to the database and assigns the connection to the global DB variable
+func ConnectToDB(dbURL string) {
 	
-	db, err := sql.Open("mysql", db_url)
+	db, err := sql.Open("mysql", dbURL)
 	if err != nil {
-		log.Fatal("Couldn't connect to database", err)
+		log.Fatalf("Couldn't connect to the database: %v", err)
 	}
 
-	if err := DB.Ping(); err != nil {
-		log.Fatal(err)
+	
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Couldn't ping the database: %v", err)
 	}
 	DB = db
 	fmt.Println("Successfully connected to the database")
