@@ -89,7 +89,7 @@ func HandleAdminSignup(dbi *sql.DB) http.HandlerFunc {
 		json.NewEncoder(w).Encode(APIResponse{Message: "Admin signup successful"})
 	}
 }
-
+// Logs in an admin user
 func HandleAdminLogin(dbi *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -150,7 +150,7 @@ func HandleAdminLogin(dbi *sql.DB) http.HandlerFunc {
 			Role:  "admin",
 			RegisteredClaims: jwt.RegisteredClaims{
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)), // Token expires in 24 hours
-				Issuer:    "qwizza",                                          
+				Issuer:    "qwizza",
 			},
 		}
 		jwtSecretKey := []byte(os.Getenv("JWT_SECRET"))
@@ -177,4 +177,100 @@ func userExists(dbi *sql.DB, email string) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// Creates quiz
+func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Validate request method
+		if r.Method != http.MethodPost {
+			http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+			return
+		}
+		// Initialize quiz model and populate with data from request body
+		var quiz models.Quiz
+		if err := json.NewDecoder(r.Body).Decode(&quiz); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Invalid request body", Error: err.Error()})
+			return
+		}
+		// Validate required fields
+		if quiz.Title == "" || quiz.Description == "" || quiz.Duration <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Missing or invalid fields"})
+			return
+		}
+		if len(quiz.Questions) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(APIResponse{Message: "A quiz must have questions"})
+			return
+		}
+		// Set start time to current time if not provided
+		if quiz.StartTime.IsZero() {
+			quiz.StartTime = time.Now()
+		}
+		// Start transaction
+		tx, err := dbi.Begin()
+		if err != nil {
+			log.Printf("Transaction start error: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Failed to create quiz", Error: err.Error()})
+			return
+		}
+		quizQuery := `
+		INSERT INTO quiz (title, description, duration, starttime, createdat)
+		VALUES (?,?, ?,?, ?)
+		`
+		res, err := tx.Exec(quizQuery, quiz.Title, quiz.Description, quiz.Duration, quiz.StartTime, time.Now())
+		if err != nil {
+			tx.Rollback()
+			log.Printf("Quiz insert error: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Failed to create quiz", Error: err.Error()})
+			return
+		}
+
+		// Get quiz ID
+		quizID, err := res.LastInsertId()
+		if err != nil {
+			tx.Rollback()
+			log.Printf("Failed to retrieve quiz ID: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Failed to create quiz", Error: err.Error()})
+			return
+		}
+
+		questionQuery := `INSERT INTO question (quiz_id, title, correctoption, options) VALUES (?,?,?,?)`
+		for _, question := range quiz.Questions {
+			optionsJSON, err := json.Marshal(question.Options)
+			if err != nil {
+				tx.Rollback()
+				log.Printf("Failed to marshal options: %v\n", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(APIResponse{Message: "Failed to create quiz", Error: err.Error()})
+				return
+			}
+
+			_, err = tx.Exec(questionQuery, quizID, question.Title, question.CorrectAnswer, optionsJSON)
+			if err != nil {
+				tx.Rollback()
+				log.Printf("Question insert error: %v\n", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(APIResponse{Message: "Failed to add questions", Error: err.Error()})
+				return
+			}
+		}
+
+		// Commit the transaction
+		if err := tx.Commit(); err != nil {
+			log.Printf("Transaction commit error: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Failed to create quiz", Error: err.Error()})
+			return
+		}
+
+		// Respond with success
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(APIResponse{Message: "Quiz created successfully"})
+	}
 }
