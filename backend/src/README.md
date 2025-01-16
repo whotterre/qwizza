@@ -1,4 +1,4 @@
-# Qwizza API
+# Qwizza API Documentation
 
 ## Features
 
@@ -26,35 +26,54 @@
 ---
 
 ## API Endpoints
+
 ### Admin
 
-### POST /admin/signup
+#### POST /admin/login
 **Login (returns JWT token).**
 
 **Request Body**:
 ```json
 {
-  "username": "username",
-  "password": "password",
-  "email" : "jackdoe@gmail.com",
-  "phone" : "+234987373723",
+  "email": "jackdoe@gmail.com",
+  "password": "password"
 }
 ```
 
 **Successful Response - 200**:
 ```json 
 {
-  "message": "Admin signup successful"
+  "message": "Login successful",
+  "token": "your-jwt-token-here"
 }
 ```
-**Response Fraught with Error - 500**:
+
+**Response on Invalid Credentials - 401**:
 ```json 
 {
-  "message": "Database error",
-  "error": "Info on the database error"
+  "message": "Invalid credentials",
+  "error": "Incorrect email or password"
 }
----
 ```
+
+**Response on Missing Fields - 400**:
+```json 
+{
+  "message": "Missing required fields",
+  "error": "Both email and password are required"
+}
+```
+
+**Response on Server Error - 500**:
+```json
+{
+  "message": "Internal server error",
+  "error": "Info about the internal error"
+}
+```
+
+---
+
 ## Setup & Installation
 
 ### Prerequisites
