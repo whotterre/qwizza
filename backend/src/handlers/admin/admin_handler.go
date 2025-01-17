@@ -347,6 +347,53 @@ func UpdateQuiz(dbi *sql.DB) http.HandlerFunc {
 	}
 }
 
+// Deletes a quiz
+func DeleteQuiz(dbi *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Validate request method
+		if r.Method != http.MethodDelete {
+			http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract JWT from header
+		tokenStr := r.Header.Get("Authorization")
+		if tokenStr == "" {
+			http.Error(w, "Missing authorization token", http.StatusUnauthorized)
+			return
+		}
+
+		// Parse token
+		_, claims, err := parseToken(tokenStr)
+		if err != nil || claims.Role != "admin" {
+			http.Error(w, "Unauthorized access", http.StatusForbidden)
+			return
+		}
+
+		// Parse quiz ID from the URL
+		quizID := r.URL.Query().Get("quizID")
+		if quizID == "" {
+			http.Error(w, "Missing quiz ID", http.StatusBadRequest)
+			return
+		}
+
+		// Delete quiz from database
+		_, err = dbi.Exec(`
+			DELETE FROM quiz WHERE QUIZ_ID = ?
+		`, quizID)
+		if err != nil {
+			log.Printf("Error deleting quiz: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Failed to delete quiz", Error: err.Error()})
+			return
+		}
+
+		// Respond with success
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(APIResponse{Message: "Quiz deleted successfully"})
+	}
+}
+
 func parseToken(tokenStr string) (*jwt.Token, *Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(os.Getenv("JWT_SECRET")), nil
