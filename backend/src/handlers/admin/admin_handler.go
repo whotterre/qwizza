@@ -3,6 +3,7 @@ package admin
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -89,6 +90,7 @@ func HandleAdminSignup(dbi *sql.DB) http.HandlerFunc {
 		json.NewEncoder(w).Encode(APIResponse{Message: "Admin signup successful"})
 	}
 }
+
 // Logs in an admin user
 func HandleAdminLogin(dbi *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -206,6 +208,9 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 			return
 		}
 		// Set start time to current time if not provided
+		if quiz.CreatedAt.IsZero() {
+			quiz.CreatedAt = time.Now()
+		}
 		if quiz.StartTime.IsZero() {
 			quiz.StartTime = time.Now()
 		}
@@ -218,10 +223,11 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 			return
 		}
 		quizQuery := `
-		INSERT INTO quiz (title, description, duration, starttime, createdat)
-		VALUES (?,?, ?,?, ?)
-		`
-		res, err := tx.Exec(quizQuery, quiz.Title, quiz.Description, quiz.Duration, quiz.StartTime, time.Now())
+		INSERT INTO quiz (TITLE, DESCRIPTION, CREATEDAT, DURATION, STARTTIME)
+		VALUES (?,?,?,?,?)
+	`
+
+		res, err := tx.Exec(quizQuery, quiz.Title, quiz.Description, quiz.CreatedAt, quiz.Duration, quiz.StartTime)
 		if err != nil {
 			tx.Rollback()
 			log.Printf("Quiz insert error: %v\n", err)
@@ -232,6 +238,7 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 
 		// Get quiz ID
 		quizID, err := res.LastInsertId()
+		fmt.Print(quizID)
 		if err != nil {
 			tx.Rollback()
 			log.Printf("Failed to retrieve quiz ID: %v\n", err)
@@ -240,7 +247,7 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		questionQuery := `INSERT INTO question (quiz_id, title, correctoption, options) VALUES (?,?,?,?)`
+		questionQuery := `INSERT INTO question (QUIZ_ID, TITLE, CORRECT_OPTION, OPTIONS) VALUES (?,?,?,?)`
 		for _, question := range quiz.Questions {
 			optionsJSON, err := json.Marshal(question.Options)
 			if err != nil {
@@ -251,7 +258,7 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 				return
 			}
 
-			_, err = tx.Exec(questionQuery, quizID, question.Title, question.CorrectAnswer, optionsJSON)
+			_, err = tx.Exec(questionQuery, quizID, question.Title, question.CorrectOption, optionsJSON)
 			if err != nil {
 				tx.Rollback()
 				log.Printf("Question insert error: %v\n", err)
