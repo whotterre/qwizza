@@ -71,8 +71,9 @@
   "error": "Info about the internal error"
 }
 ```
-
 ---
+
+
 
 ## Setup & Installation
 

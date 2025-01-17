@@ -9,7 +9,6 @@ import (
 	"os"
 	"qwizza/models"
 	"time"
-
 	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -189,6 +188,21 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 			http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 			return
 		}
+
+		// Extract JWT from header
+		tokenStr := r.Header.Get("Authorization")
+		if tokenStr == "" {
+			http.Error(w, "Missing authorization token", http.StatusUnauthorized)
+			return
+		}
+
+		// Parse token
+		_, claims, err := parseToken(tokenStr)
+		if err != nil || claims.Role != "admin" {
+			http.Error(w, "Unauthorized access", http.StatusForbidden)
+			return
+		}
+
 		// Initialize quiz model and populate with data from request body
 		var quiz models.Quiz
 		if err := json.NewDecoder(r.Body).Decode(&quiz); err != nil {
@@ -207,6 +221,7 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 			json.NewEncoder(w).Encode(APIResponse{Message: "A quiz must have questions"})
 			return
 		}
+
 		// Set start time to current time if not provided
 		if quiz.CreatedAt.IsZero() {
 			quiz.CreatedAt = time.Now()
@@ -214,6 +229,7 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 		if quiz.StartTime.IsZero() {
 			quiz.StartTime = time.Now()
 		}
+
 		// Start transaction
 		tx, err := dbi.Begin()
 		if err != nil {
@@ -238,7 +254,6 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 
 		// Get quiz ID
 		quizID, err := res.LastInsertId()
-		fmt.Print(quizID)
 		if err != nil {
 			tx.Rollback()
 			log.Printf("Failed to retrieve quiz ID: %v\n", err)
@@ -280,4 +295,70 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(APIResponse{Message: "Quiz created successfully"})
 	}
+}
+
+// Update quiz
+func UpdateQuiz(dbi *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Validate request method
+		if r.Method != http.MethodPut {
+			http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract JWT from header
+		tokenStr := r.Header.Get("Authorization")
+		if tokenStr == "" {
+			http.Error(w, "Missing authorization token", http.StatusUnauthorized)
+			return
+		}
+
+		// Parse token
+		_, claims, err := parseToken(tokenStr)
+		if err != nil || claims.Role != "admin" {
+			http.Error(w, "Unauthorized access", http.StatusForbidden)
+			return
+		}
+
+		// Parse the quiz data from the request body
+		var quiz models.Quiz
+		if err := json.NewDecoder(r.Body).Decode(&quiz); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Invalid request body", Error: err.Error()})
+			return
+		}
+
+		// Update quiz in the database
+		_, err = dbi.Exec(`
+			UPDATE quiz
+			SET TITLE = ?, DESCRIPTION = ?, DURATION = ?, STARTTIME = ?
+			WHERE QUIZ_ID = ?
+		`, quiz.Title, quiz.Description, quiz.Duration, quiz.StartTime, quiz.ID)
+		if err != nil {
+			log.Printf("Error updating quiz: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Failed to update quiz", Error: err.Error()})
+			return
+		}
+
+		// Respond with success
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(APIResponse{Message: "Quiz updated successfully"})
+	}
+}
+
+func parseToken(tokenStr string) (*jwt.Token, *Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte(os.Getenv("JWT_SECRET")), nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	claims, ok := token.Claims.(*Claims)
+	if !ok || !token.Valid {
+		return nil, nil, fmt.Errorf("invalid token")
+	}
+
+	return token, claims, nil
 }
