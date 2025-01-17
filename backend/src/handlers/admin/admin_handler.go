@@ -394,6 +394,52 @@ func DeleteQuiz(dbi *sql.DB) http.HandlerFunc {
 	}
 }
 
+// Gets a particular quiz by ID
+func GetQuiz(dbi *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Validate request method
+		if r.Method != http.MethodGet {
+			http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Parse quiz ID from URL params
+		quizID := r.URL.Query().Get("quiz_id")
+		if quizID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Missing quiz ID"})
+			return
+		}
+
+		// SQL query to get the quiz
+		getQuizQuery := `
+		SELECT QUIZ_ID, TITLE, DESCRIPTION, DURATION, STARTTIME 
+		FROM quiz 
+		WHERE QUIZ_ID = ?;
+		`
+
+		var quiz models.Quiz
+		err := dbi.QueryRow(getQuizQuery, quizID).Scan(&quiz.ID, &quiz.Title, &quiz.Description, &quiz.Duration, &quiz.StartTime)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(APIResponse{Message: "Quiz not found"})
+				return
+			}
+			log.Printf("Failed to retrieve quiz: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(APIResponse{Message: "Failed to retrieve quiz", Error: err.Error()})
+			return
+		}
+
+		// Respond with the quiz data
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(quiz); err != nil {
+			http.Error(w, "Failed to encode quiz to JSON", http.StatusInternalServerError)
+			return
+		}
+	}
+}
 func parseToken(tokenStr string) (*jwt.Token, *Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(os.Getenv("JWT_SECRET")), nil
