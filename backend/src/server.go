@@ -12,32 +12,39 @@ import (
 )
 
 func main() {
-	godotenv.Load()
-	db_string := os.Getenv("DB_STRING")
-	if db_string == "" {
-		log.Fatal("DB_STRING environment variable is not set")
+	// Load environment variables
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Warning: No .env file found or failed to load")
 	}
-	// Connect to DB
-	utils.ConnectToDB(db_string)
-	// Migrate 
+
+	// Get DB connection string from environment variables
+	dbString := os.Getenv("DB_STRING")
+	if dbString == "" {
+		log.Fatal("Error: DB_STRING environment variable is not set")
+	}
+
+	// Connect to the database
+	utils.ConnectToDB(dbString)
+
+	// Run database migrations
 	migrators.AutoMigrate(utils.DB)
-	// HTTP Server instance
-	adminMux := http.NewServeMux()
-	// userMux := http.NewServeMux()
 
-	routes.RegisterAdminRoutes(adminMux, utils.DB)
-	// routes.RegisterUserRoutes(userMux, utils.DB)
+	// HTTP Server instance with unified routes
+	mux := http.NewServeMux()
+	routes.RegisterAdminRoutes(mux, utils.DB) // Admin routes
+	routes.RegisterUserRoutes(mux, utils.DB) // User routes
 
+	// Get server port
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8080" // Default to port 8080 if not set
 	}
 
+	// Start the server
 	log.Printf("Starting server on port %s...", port)
-	err := http.ListenAndServe(":"+port, adminMux)
-
+	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
-
 }

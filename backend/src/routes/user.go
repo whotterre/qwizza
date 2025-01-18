@@ -3,10 +3,10 @@ package routes
 import (
 	"database/sql"
 	"net/http"
-	//"qwizza/handlers/user"
+	user "qwizza/handlers/user"
 )
 
 func RegisterUserRoutes(mux *http.ServeMux, db *sql.DB) {
-	mux.HandleFunc("/quizzes", nil)
-	mux.HandleFunc("/quizzes/submit", nil)
+	mux.HandleFunc("/quizzes", user.GetQuizzes(db))
+	// mux.HandleFunc("/quizzes/submit", nil)
 }
