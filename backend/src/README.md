@@ -11,6 +11,7 @@
 - Tables for users, quizzes, questions, answers, and quiz submissions.
 - Relationships between quizzes and questions.
 - Track which student submitted answers for which quiz.
+- User roles (`student`, `admin`) are stored in the `ROLE` column of the `users` table.
 
 ### Quiz Management
 - Admin can create, update, and delete quizzes.
@@ -22,6 +23,10 @@
 
 ### Score Calculation
 - When a student submits their answers, their score is calculated by comparing their answers with the correct answers stored in the database.
+
+### Database Migrations
+- The project uses a MySQL database with tables for users, quizzes, questions, and responses.
+- The `AutoMigrate` function ensures the tables are created or updated if needed.
 
 ---
 
@@ -71,9 +76,61 @@
   "error": "Info about the internal error"
 }
 ```
+
+### Admin: Quiz Management
+
+#### POST /admin/quiz
+**Create a new quiz.** (Admin only)
+
+**Request Body**:
+```json
+{
+  "title": "Math Quiz",
+  "description": "A challenging quiz on basic math",
+  "duration": 30,
+  "startTime": "2025-01-17T10:00:00Z"
+}
+```
+
+**Response - 201**:
+```json
+{
+  "message": "Quiz created successfully",
+  "quiz_id": 1
+}
+```
+
+#### PUT /admin/quiz/{id}
+**Update an existing quiz.** (Admin only)
+
+**Request Body**:
+```json
+{
+  "title": "Advanced Math Quiz",
+  "description": "An advanced quiz on math concepts",
+  "duration": 45,
+  "startTime": "2025-01-20T12:00:00Z"
+}
+```
+
+**Response - 200**:
+```json
+{
+  "message": "Quiz updated successfully"
+}
+```
+
+#### DELETE /admin/quiz/{id}
+**Delete a quiz.** (Admin only)
+
+**Response - 200**:
+```json
+{
+  "message": "Quiz deleted successfully"
+}
+```
+
 ---
-
-
 
 ## Setup & Installation
 
@@ -95,6 +152,8 @@
    go mod tidy
    ```
 4. Set up the MySQL database with the provided schema.
+   - The schema includes the `users`, `quiz`, `question`, and `response` tables.
+   - The `AutoMigrate` function in the project will automatically create these tables if they do not exist.
 5. Start the server:
    ```bash
    go run main.go
@@ -105,4 +164,3 @@
 ## License
 MIT License - See [LICENSE](LICENSE) for more details.
 
----
