@@ -3,15 +3,22 @@ package admin
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"qwizza/models"
+	"qwizza/utils"
 	"time"
+
 	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/bcrypt"
 )
+
+type Claims struct {
+	Email string `json:"email"`
+	Role  string `json:"role"`
+	jwt.RegisteredClaims
+}
 
 type APIResponse struct {
 	Message string `json:"message"`
@@ -21,11 +28,6 @@ type LoginResponse struct {
 	Message string `json:"message"`
 	Token   string `json:"token"`
 	Error   string `json:"error,omitempty"`
-}
-type Claims struct {
-	Email string `json:"email"`
-	Role  string `json:"role"`
-	jwt.RegisteredClaims
 }
 
 // Signs up an admin user
@@ -74,7 +76,7 @@ func HandleAdminSignup(dbi *sql.DB) http.HandlerFunc {
 
 		// Insert the new admin user into the database
 		_, err = dbi.Exec(
-			"INSERT INTO users (username, password, email, phone, role, createdAt) VALUES (?, ?, ?, ?, ?, ?)",
+			"INSERT INTO users (USERNAME, PASSWORD, EMAIL, PHONE, ROLE, CREATED_AT) VALUES (?, ?, ?, ?, ?, ?)",
 			user.Username, string(hashedPassword), user.Email, user.Phone, "admin", time.Now(),
 		)
 		if err != nil {
@@ -197,8 +199,9 @@ func CreateQuiz(dbi *sql.DB) http.HandlerFunc {
 		}
 
 		// Parse token
-		_, claims, err := parseToken(tokenStr)
+		_, claims, err := utils.ParseToken(tokenStr)
 		if err != nil || claims.Role != "admin" {
+
 			http.Error(w, "Unauthorized access", http.StatusForbidden)
 			return
 		}
@@ -314,7 +317,7 @@ func UpdateQuiz(dbi *sql.DB) http.HandlerFunc {
 		}
 
 		// Parse token
-		_, claims, err := parseToken(tokenStr)
+		_, claims, err := utils.ParseToken(tokenStr)
 		if err != nil || claims.Role != "admin" {
 			http.Error(w, "Unauthorized access", http.StatusForbidden)
 			return
@@ -364,7 +367,7 @@ func DeleteQuiz(dbi *sql.DB) http.HandlerFunc {
 		}
 
 		// Parse token
-		_, claims, err := parseToken(tokenStr)
+		_, claims, err := utils.ParseToken(tokenStr)
 		if err != nil || claims.Role != "admin" {
 			http.Error(w, "Unauthorized access", http.StatusForbidden)
 			return
@@ -439,19 +442,4 @@ func GetQuiz(dbi *sql.DB) http.HandlerFunc {
 			return
 		}
 	}
-}
-func parseToken(tokenStr string) (*jwt.Token, *Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte(os.Getenv("JWT_SECRET")), nil
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	claims, ok := token.Claims.(*Claims)
-	if !ok || !token.Valid {
-		return nil, nil, fmt.Errorf("invalid token")
-	}
-
-	return token, claims, nil
 }
