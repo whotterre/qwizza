@@ -1,5 +1,5 @@
 # Qwizza API Documentation
-
+![alt text](image.png)
 ## Features
 
 ### User Authentication (JWT)
