@@ -12,7 +12,8 @@ export const signUpController = async (req: Request, res: Response) => {
   if (result.error) {
     return res.status(400).json({ error: result.error });
   }
-  return res.status(201).json({ user: result.user });
+  const { password_hash, ...safeUser } = result.user || {};
+  return res.status(201).json({ user: safeUser });
 };
 
 export const loginController = async (req: Request, res: Response) => {
@@ -21,7 +22,8 @@ export const loginController = async (req: Request, res: Response) => {
   if (result.error) {
     return res.status(400).json({ error: result.error });
   }
-  return res.status(200).json({ user: result.user });
+  const { password_hash, ...safeUser } = result.user || {};
+  return res.status(200).json({ user: safeUser });
 };
 
 export const deleteUserController = async (req: Request, res: Response) => {
@@ -30,9 +32,10 @@ export const deleteUserController = async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'User ID required' });
   }
   const result = await userRepo.deleteUser(Number(id));
-  if (result.rowCount === 0) {
+  if (!result) {
     return res.status(404).json({ error: 'User not found or already deleted' });
   }
-  return res.status(200).json({ message: 'User deleted successfully' });
+  const { password_hash, ...safeUser } = result || {};
+  return res.status(200).json({ user: safeUser, message: 'User deleted successfully' });
 };
 
