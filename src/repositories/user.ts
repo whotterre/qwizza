@@ -1,6 +1,5 @@
 import { NodePgDatabase } from "drizzle-orm/node-postgres"
 import { eq } from "drizzle-orm"
-import db from "../index"
 import { users } from "../db/schema"
 
 class UserRepository {
@@ -21,19 +20,26 @@ class UserRepository {
     }
 
     // Create user
+
     async createUser(
         email: string,
         passwordHash: string,
         role: "player" | "host" = "host"
     ) {
-        const result = await this.dbClient.insert(users).values({ email, password_hash: passwordHash, role });
-        return result;
+        const result = await this.dbClient
+            .insert(users)
+            .values({ email, password_hash: passwordHash, role })
+            .returning();
+        return result[0];
     }
 
     // Delete user
     async deleteUser(id: number) {
-        const result = await this.dbClient.delete(users).where(eq(users.id, id));
-        return result;
+        const result = await this.dbClient
+            .delete(users)
+            .where(eq(users.id, id))
+            .returning();
+        return result[0];
     }
 }
 
