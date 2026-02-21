@@ -3,12 +3,14 @@ import { integer, pgEnum, pgTable, varchar, text, boolean, date, serial } from "
 export const rolesEnum = pgEnum("roles", ["player", "host"]);
 
 // User table
+import { timestamp } from "drizzle-orm/pg-core";
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: varchar("email", { length: 255 }).notNull().unique(),
   password_hash: varchar("password_hash", { length: 255 }).notNull(),
   role: rolesEnum("role").notNull().default("host"),
-  created_at: date("created_at").notNull().defaultNow(),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Game table
@@ -17,6 +19,8 @@ export const games = pgTable("games", {
   name: varchar("name", { length: 255 }).notNull(),
   host_id: integer("host_id").references(() => users.id).notNull(),
   question_duration: integer("question_duration").notNull(), // seconds
+  scheduled_at: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  gamePin: varchar({length: 6}).unique().notNull(),
   expires_at: date("expires_at").notNull(),
   created_at: date("created_at").notNull().defaultNow(),
 });
