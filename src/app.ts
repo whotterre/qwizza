@@ -1,8 +1,11 @@
-import express from 'express'
-import authRoutes from './routes/auth'
-const app = express()
+import express from 'express';
+import morgan from 'morgan';
+import authRoutes from './routes/auth';
 
-app.use(express.json())
-app.use(authRoutes)
+const app = express();
 
-export default app
+app.use(morgan('dev'));
+app.use(express.json());
+app.use(authRoutes);
+
+export default app;
