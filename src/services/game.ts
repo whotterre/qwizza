@@ -2,11 +2,11 @@
 import GameRepository from "../repositories/game";
 import { InferModel } from "drizzle-orm";
 import { users } from "../db/schema";
-import {generateUsername} from "../utils/helper"
+import {generateUsername} from "../utils/helpers"
 import UserRepository from "../repositories/user";
 
 export type User = InferModel<typeof users>;
-
+export type QuizData = { content: string; correct_answer: string }
 
 class GameService {
     private userRepo: UserRepository
@@ -28,14 +28,14 @@ class GameService {
         }
         // Calculate expiry time: add question_duration (in minutes) to scheduled_at
         const expires_at = new Date(scheduled_at.getTime() + question_duration * 60 * 1000);
-        const game = await this.gameRepo.createGame(
+        const result = await this.gameRepo.createGame(
             name,
             question_duration,
             scheduled_at,
             expires_at,
             creator.id
         );
-        return game;
+        return result; 
     }
 
     
@@ -43,6 +43,7 @@ class GameService {
     async addPlayer(gamePin: string, email: string){
         // get game by id
         const game = await this.gameRepo.getGameByPIN(gamePin);
+        console.log(game)
         if (!game) {
             throw new Error('Game not found');
         }
@@ -63,6 +64,38 @@ class GameService {
 
     }
 
+    async addQuizToGame(creator: User, gameId: number, title: string) {
+        try {
+            const game = await this.gameRepo.getGameById(gameId);
+            if (!game) throw new Error('Game not found');
+            if (game.host_id !== creator.id) throw new Error('Only the host can add a quiz');
+
+            const quiz = await this.gameRepo.createQuizForGame(gameId, title!);
+            return quiz;
+        } catch (err: any) {
+            console.error('GameService.addQuizToGame error:', err);
+            throw err; 
+        }
+    }
+
+    async addQuestionsToQuiz(creator: User, quizId: number, items: { content: string; correct_answer: string }[]) {
+        if (!items || items.length === 0) throw new Error('No questions provided');
+
+        const quiz = await this.gameRepo.getQuizById(quizId);
+        if (!quiz) throw new Error('Quiz not found');
+
+        const game = await this.gameRepo.getGameById(quiz.game_id);
+        if (!game) throw new Error('Game not found');
+        if (game.host_id !== creator.id) throw new Error('Only the host can add questions');
+
+        for (const it of items) {
+            if (!it.content || !it.correct_answer) throw new Error('Invalid question item');
+        }
+
+        const created = await this.gameRepo.createQuestionsForQuiz(quizId, items);
+        return created;
+    }
+    
 }
 
 export default GameService

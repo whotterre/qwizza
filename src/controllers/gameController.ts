@@ -9,33 +9,70 @@ const userRepo = new UserRepository(db);
 const gameService = new GameService(userRepo, gameRepo);
 
 export const createGameController = async (req: Request, res: Response) => {
-	try {
-		const creator = (req as any).user;
-		const { name, question_duration, scheduled_at } = req.body;
-		if (!creator) return res.status(401).json({ error: 'Unauthorized' });
-		if (!name || !question_duration || !scheduled_at) {
-			return res.status(400).json({ error: 'Missing required fields' });
-		}
-		const scheduledAtDate = new Date(scheduled_at);
-		if (isNaN(scheduledAtDate.getTime())) return res.status(400).json({ error: 'Invalid scheduled_at' });
+    try {
+        const creator = (req as any).user;
+        const { name, question_duration, scheduled_at } = req.body;
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        if (!name || !question_duration || !scheduled_at) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+        const scheduledAtDate = new Date(scheduled_at);
+        if (isNaN(scheduledAtDate.getTime())) return res.status(400).json({ error: 'Invalid scheduled_at' });
 
-		const game = await gameService.createGame(creator, name, Number(question_duration), scheduledAtDate);
-		return res.status(201).json({ game });
-	} catch (err: any) {
-		return res.status(500).json({ error: err.message || 'Internal error' });
-	}
+        const game = await gameService.createGame(creator, name, Number(question_duration), scheduledAtDate);
+        return res.status(201).json({ game });
+    } catch (err: any) {
+        console.error('createGameController error:', err);
+        return res.status(500).json({ error: err.message || 'Internal error' });
+    }
 };
 
 export const addPlayerController = async (req: Request, res: Response) => {
-	try {
-		const { pin } = req.params as any;
-		const { email } = req.body;
-		if (!pin) return res.status(400).json({ error: 'Missing game PIN' });
-		const result = await gameService.addPlayer(pin, email);
-		return res.status(201).json({ player: result.nickname });
-	} catch (err: any) {
-		return res.status(500).json({ error: err.message || 'Internal error' });
-	}
+    try {
+        const { pin } = req.params as any;
+        const { email } = req.body;
+        if (!pin) return res.status(400).json({ error: 'Missing game PIN' });
+        const result = await gameService.addPlayer(pin, email);
+        return res.status(201).json({ player: result.nickname });
+    } catch (err: any) {
+        console.error('addPlayerController error:', err);
+        return res.status(500).json({ error: err.message || 'Internal error' });
+    }
 };
 
-export default {};
+export const addQuizController = async (req: Request, res: Response) => {
+    try {
+        const creator = (req as any).user;
+        const { pin } = req.params as any;
+        const { title } = req.body;
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        if (!pin) return res.status(400).json({ error: 'Missing game PIN' });
+
+        // find game by PIN and use numeric id for service
+        const game = await gameRepo.getGameByPIN(pin);
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+
+        const quiz = await gameService.addQuizToGame(creator, Number(game.game_id), title);
+        return res.status(201).json({ quiz });
+    } catch (err: any) {
+        console.error('addQuizController error:', err);
+        return res.status(400).json({ error: err.message || 'Error creating quiz' });
+    }
+}
+
+export const addQuestionsController = async (req: Request, res: Response) => {
+    try {
+        const creator = (req as any).user;
+        const { id } = req.params as any; 
+        const { items } = req.body; 
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        if (!id) return res.status(400).json({ error: 'Missing quiz id' });
+        if (!items || !Array.isArray(items)) return res.status(400).json({ error: 'Invalid items payload' });
+
+        const created = await gameService.addQuestionsToQuiz(creator, Number(id), items);
+        return res.status(201).json({ questions: created });
+    } catch (err: any) {
+        console.error('addQuestionsController error:', err);
+        return res.status(400).json({ error: err.message || 'Error creating questions' });
+    }
+}
