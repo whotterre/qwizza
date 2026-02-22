@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { sign } from 'jsonwebtoken';
 import { Request, Response } from 'express';
 import UserRepository from "../repositories/user"
 
@@ -50,8 +51,21 @@ class AuthService {
 
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) return { error: 'Invalid password' };
-
-        return { user };
+        // sign jwt with expiry
+        const payload = {
+            id: user.id,
+            role: user.role
+        }
+        const JWT_SECRET = process.env.JWT_SECRET!;
+        if (!JWT_SECRET) {
+            return { error: 'JWT secret not configured' };
+        }
+        const token = sign(
+            payload,
+            JWT_SECRET!,
+            {expiresIn: 60} // TODO: use env vars for this
+        );
+        return { token, ...user };
     }
 
     async deleteUser(id: number) {
