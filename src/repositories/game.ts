@@ -1,6 +1,9 @@
 import { NodePgDatabase } from "drizzle-orm/node-postgres"
 import { eq, and } from "drizzle-orm"
-import { games, nicknames } from "../db/schema"
+import { games, nicknames, quizzes, questions } from "../db/schema"
+import { generatePIN } from "../utils/helpers"
+import { QuizData } from "../services/game"
+
 
 class GameRepository {
     private dbClient: NodePgDatabase
@@ -12,18 +15,31 @@ class GameRepository {
     async createGame(
         name: string,
         question_duration: number,
-        scheduled_at: Date,
-        expires_at: Date,
+        scheduled_at: Date | string,
+        expires_at: Date | string,
         host_id: number
     ) {
-        // const result = await this.dbClient.insert(games).values({
-        //     name,
-        //     question_duration,
-        //     scheduled_at: scheduled_at,
-        //     expires_at: expires_at,
-        //     host_id
-        // }).returning();
-        // return result[0];
+        try {
+            const pin = generatePIN()
+
+            // Ensure we pass JS Date objects (or ISO strings) consistently
+            const scheduledDate = scheduled_at instanceof Date ? scheduled_at : new Date(scheduled_at);
+            const expiryDate = expires_at instanceof Date ? expires_at : new Date(expires_at);
+
+            const result = await this.dbClient.insert(games).values({
+                name,
+                question_duration,
+                scheduled_at: scheduledDate,
+                gamePin: pin,
+                expires_at: expiryDate,
+                host_id,
+            } as any).returning();
+
+            return result[0];
+        } catch (e) {
+            console.error(e)
+        }
+
     }
 
     async getGameByPIN(gamePin: string) {
@@ -32,6 +48,11 @@ class GameRepository {
         }
         const result = await this.dbClient.select().from(games).where(eq(games.gamePin, gamePin)).limit(1)
         return result[0]
+    }
+
+    async getGameById(id: number) {
+        const result = await this.dbClient.select().from(games).where(eq(games.game_id, id)).limit(1);
+        return result[0];
     }
 
 
@@ -46,6 +67,50 @@ class GameRepository {
     async nicknameExists(game_id: number, name: string) {
         const rows = await this.dbClient.select().from(nicknames).where(and(eq(nicknames.g_id, game_id), (eq(nicknames.name, name)))).limit(1);
         return (rows && rows.length > 0);
+    }
+
+    // Create one quiz for a game (only one quiz allowed per game)
+    async createQuizForGame(game_id: number, title: string) {
+        // check existing
+        const existing = await this.dbClient.select().from(quizzes).where(eq(quizzes.game_id, game_id)).limit(1);
+        if (existing && existing.length > 0) {
+            throw new Error('Quiz already exists for this game');
+        }
+        try {
+            console.log(title, game_id)
+            const [row] = await this.dbClient.insert(quizzes).values({ game_id, title, created_at: new Date() }).returning();
+            return row;
+        } catch (err: any) {
+                console.error('GameRepository.createQuizForGame failed:', {
+                    error: err instanceof Error ? err.message : String(err),
+                    payload: { game_id, title },
+                    raw: err,
+                });
+                throw err;
+        }
+    }
+
+    async getQuizById(id: number) {
+        const result = await this.dbClient.select().from(quizzes).where(eq(quizzes.q_id, id)).limit(1);
+        return result[0];
+    }
+
+    // Insert multiple questions for a quiz atomically
+    async createQuestionsForQuiz(quiz_id: number, items: QuizData[]) {
+        if (!items || items.length === 0) return [];
+        const inserted = await this.dbClient.transaction(async (tx) => {
+            const created: QuizData[] = [];
+            for (const it of items) {
+                const [row] = await tx.insert(questions).values({
+                    quiz_id,
+                    content: it.content,
+                    correct_answer: it.correct_answer,
+                }).returning();
+                created.push(row);
+            }
+            return created;
+        });
+        return inserted;
     }
 
 }

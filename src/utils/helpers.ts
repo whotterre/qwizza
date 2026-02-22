@@ -1,4 +1,3 @@
-
 export function generateUsername(): string {
     // Username space = 26 ^ 5
     let res = ""
@@ -8,4 +7,8 @@ export function generateUsername(): string {
         res += charSet[randIdx]
     }
     return res
+}
+
+export function generatePIN(){
+    return Math.floor(Math.random() * 999999)
 }
