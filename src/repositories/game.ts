@@ -1,9 +1,9 @@
 import { NodePgDatabase } from "drizzle-orm/node-postgres"
 import { eq, and } from "drizzle-orm"
-import { games, nicknames, quizzes, questions } from "../db/schema"
+import { games, nicknames, quizzes, questions, answers } from "../db/schema"
 import { generatePIN } from "../utils/helpers"
 import { QuizData } from "../services/game"
-
+import { Question, QuestionWithAnswers, Quiz } from "../types/types"
 
 class GameRepository {
     private dbClient: NodePgDatabase
@@ -81,12 +81,12 @@ class GameRepository {
             const [row] = await this.dbClient.insert(quizzes).values({ game_id, title, created_at: new Date() }).returning();
             return row;
         } catch (err: any) {
-                console.error('GameRepository.createQuizForGame failed:', {
-                    error: err instanceof Error ? err.message : String(err),
-                    payload: { game_id, title },
-                    raw: err,
-                });
-                throw err;
+            console.error('GameRepository.createQuizForGame failed:', {
+                error: err instanceof Error ? err.message : String(err),
+                payload: { game_id, title },
+                raw: err,
+            });
+            throw err;
         }
     }
 
@@ -112,7 +112,29 @@ class GameRepository {
         });
         return inserted;
     }
+    async getQuizByGameId(gameId: number) {
+        const quizRows: Quiz[] = await this.dbClient.select().from(quizzes).where(eq(quizzes.game_id, gameId)).limit(1);
+        const quiz = quizRows[0];
+        if (!quiz) return null;
 
+        // fetch questions for the quiz
+        const questionRows: Question[] = await this.dbClient.select().from(questions).where(eq(questions.quiz_id, quiz.q_id));
+
+        // for each question fetch its answers and attach
+        const questionsWithAnswers: QuestionWithAnswers[] = [];
+        for (const q of questionRows) {
+            const answerRows = await this.dbClient.select().from(answers).where(eq(answers.qu_id, q.qu_id));
+            questionsWithAnswers.push({
+                ...q,
+                answers: answerRows || [],
+            });
+        }
+
+        return {
+            ...quiz,
+            questions: questionsWithAnswers,
+        };
+    }
 }
 
 export default GameRepository
