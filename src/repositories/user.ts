@@ -5,22 +5,29 @@ import { users } from "../db/schema"
 class UserRepository {
     private dbClient: NodePgDatabase
 
-    constructor(db: NodePgDatabase){
+    constructor(db: NodePgDatabase) {
         this.dbClient = db
     }
 
 
     // Get user by email
-    async getUserByEmail(email: string){
-        if (!email){
+    async getUserByEmail(email: string) {
+        if (!email) {
             return
         }
         const result = await this.dbClient.select().from(users).where(eq(users.email, email)).limit(1)
         return result[0]
     }
 
-    // Create user
+    async getUserById(id: number) {
+        if (!id) {
+            return
+        }
+        const result = await this.dbClient.select().from(users).where(eq(users.id, id)).limit(1)
+        return result[0]
+    }
 
+    // Create user
     async createUser(
         email: string,
         passwordHash: string,

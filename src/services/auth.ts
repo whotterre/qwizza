@@ -63,7 +63,7 @@ class AuthService {
         const token = sign(
             payload,
             JWT_SECRET!,
-            {expiresIn: 60} // TODO: use env vars for this
+            {expiresIn: 1 * 3600 * 1000} 
         );
         return { token, ...user };
     }
