@@ -1,12 +1,13 @@
 import { Request, Response } from 'express';
 import GameRepository from "../repositories/game";
 import UserRepository from "../repositories/user";
+import redis from '../utils/redis'
 import db from '../index';
 import GameService from '../services/game';
 
 const gameRepo = new GameRepository(db);
 const userRepo = new UserRepository(db);
-const gameService = new GameService(userRepo, gameRepo);
+const gameService = new GameService(userRepo, gameRepo, redis);
 
 export const createGameController = async (req: Request, res: Response) => {
     try {
@@ -63,8 +64,8 @@ export const addQuizController = async (req: Request, res: Response) => {
 export const addQuestionsController = async (req: Request, res: Response) => {
     try {
         const creator = (req as any).user;
-        const { id } = req.params as any; 
-        const { items } = req.body; 
+        const { id } = req.params as any;
+        const { items } = req.body;
         if (!creator) return res.status(401).json({ error: 'Unauthorized' });
         if (!id) return res.status(400).json({ error: 'Missing quiz id' });
         if (!items || !Array.isArray(items)) return res.status(400).json({ error: 'Invalid items payload' });
@@ -74,5 +75,20 @@ export const addQuestionsController = async (req: Request, res: Response) => {
     } catch (err: any) {
         console.error('addQuestionsController error:', err);
         return res.status(400).json({ error: err.message || 'Error creating questions' });
+    }
+}
+
+export const initializeGameController = async (req: Request, res: Response) => {
+    try {
+        const { pin } = req.params 
+        const result = await gameService.initializeGame(pin as string, req.user)
+
+        return res.status(200).json({
+            message: "Successfully initialized game",
+            result
+        })
+    } catch (err: any) {
+        console.error('addQuestionsController error:', err);
+        return res.status(400).json({ error: err.message || 'Error initializing game' });
     }
 }
