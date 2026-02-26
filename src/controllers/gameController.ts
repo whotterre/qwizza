@@ -1,3 +1,4 @@
+
 import { Request, Response } from 'express';
 import GameRepository from "../repositories/game";
 import UserRepository from "../repositories/user";
@@ -80,8 +81,10 @@ export const addQuestionsController = async (req: Request, res: Response) => {
 
 export const initializeGameController = async (req: Request, res: Response) => {
     try {
-        const { pin } = req.params 
-        const result = await gameService.initializeGame(pin as string, req.user)
+        const creator = (req as any).user;
+        const { pin } = req.params
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        const result = await gameService.initializeGame(pin as string, creator)
 
         return res.status(200).json({
             message: "Successfully initialized game",
@@ -92,3 +95,41 @@ export const initializeGameController = async (req: Request, res: Response) => {
         return res.status(400).json({ error: err.message || 'Error initializing game' });
     }
 }
+
+export const joinGame = async (req: Request, res: Response) => {
+    try {
+        const { pin } = req.params;
+        const { nickname } = req.body;
+        const result = await gameService.joinGame(Number(pin), nickname);
+        return res.status(200).json({
+            message: "Successfully joined game",
+            result
+        });
+    } catch (err: any) {
+        console.error("An error occurred while trying to join game", err);
+        const msg = err.message || "Error joining game";
+        if (msg.includes("expired") || msg.includes("No active game")) {
+            return res.status(404).json({ error: msg });
+        } else if (msg.includes("nickname") || msg.includes("Nickname taken")) {
+            return res.status(409).json({ error: msg });
+        } else if (msg.includes("doesn't exist for this game")) {
+            return res.status(400).json({ error: msg });
+        } else {
+            return res.status(500).json({ error: msg });
+        }
+    }
+}
+
+export const getHostGamesController = async (req: Request, res: Response) => {
+    try {
+        const host = (req as any).user;
+        if (!host || host.role !== 'host') {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        const games = await gameRepo.getGamesByHostId(host.id);
+        return res.status(200).json({ games });
+    } catch (err: any) {
+        console.error('getHostGamesController error:', err);
+        return res.status(500).json({ error: err.message || 'Internal error' });
+    }
+};

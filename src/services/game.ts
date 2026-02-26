@@ -121,7 +121,7 @@ class GameService {
 
         const hashKey = `quiz:${game.game_id}:questions`
         const payload: Record<string,string> = {}
-        const questions = (quiz.questions || []) as any[]
+        const questions = (quiz.questions || []) as Question[]
         for (const question of questions) {
             payload[String(question.qu_id)] = JSON.stringify(question)
         }
@@ -129,6 +129,14 @@ class GameService {
         if (Object.keys(payload).length > 0) {
             await this.redisClient.hset(hashKey, payload)
         }
+
+        // Set game:state:<gamePin> in Redis with expiry
+        const stateKey = `game:state:${gamePin}`;
+        const now = Date.now();
+        const expiresAt = new Date(game.expires_at).getTime();
+        let ttlSeconds = Math.floor((expiresAt - now) / 1000);
+        if (ttlSeconds <= 0) ttlSeconds = 3600; 
+        await this.redisClient.set(stateKey, 'live', 'EX', ttlSeconds);
 
         return { quizId: quiz.q_id, questionsCount: questions.length }
     }
@@ -182,8 +190,24 @@ class GameService {
              throw new Error("This nickname doesn't exist for this game.")
         }
 
-        // add user to lobby 
+        // add user to lobby - with a score of zero
+        const playersKey = `game:players:${gamePin}`
+        const leaderboardKey = `game:leaderboard:${gamePin}`
+        const stateKey = `game:state:${gamePin}`
+        // check if a game is actually live
+        const exists = await this.redisClient.exists(stateKey)
+        if(!exists) throw new Error("Game doesn't exist or has expired")
 
+        // join game 
+        const isNew = await this.redisClient.sadd(playersKey, nickname)
+        if(isNew === 0) throw new Error("Nickname taken")
+
+        // initialize in leaderboard zset with 0 points
+        await this.redisClient.zadd(leaderboardKey, 0, nickname)
+
+        return {
+            success: true
+        }
     }
 
 }

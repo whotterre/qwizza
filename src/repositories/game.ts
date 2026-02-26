@@ -135,6 +135,11 @@ class GameRepository {
             questions: questionsWithAnswers,
         };
     }
+
+     async getGamesByHostId(hostId: number) {
+        const result = await this.dbClient.select().from(games).where(eq(games.host_id, hostId));
+        return result;
+    }
 }
 
 export default GameRepository
