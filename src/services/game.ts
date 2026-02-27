@@ -35,7 +35,6 @@ class GameService {
         if (creator.role !== 'host') {
             throw new Error("Only hosts can create games");
         }
-        // Calculate expiry time: add question_duration (in minutes) to scheduled_at
         const expires_at = new Date(scheduled_at.getTime() + question_duration * 60 * 1000);
         const result = await this.gameRepo.createGame(
             name,
@@ -52,14 +51,13 @@ class GameService {
     async addPlayer(gamePin: number, email: string) {
         // get game by id
         const game = await this.gameRepo.getGameByPIN(String(gamePin));
-        console.log(game)
         if (!game) {
             throw new Error('Game not found');
         }
 
-        // generate unique username
         let playerNickname = generateUsername();
         let attempts = 0;
+        // Optimize this
         while (await this.gameRepo.nicknameExists(game.game_id, playerNickname)) {
             playerNickname = generateUsername();
             attempts++;
@@ -106,13 +104,13 @@ class GameService {
     }
 
     // Fetches quiz details and inserts them in a Redis hash
-    async initializeGame(gamePin: string, user: User){
+    async initializeGame(gamePin: string, user: User) {
         const game = await this.gameRepo.getGameByPIN(gamePin)
         if (!game) throw new Error('Game not found')
 
         // Ensure it's the host that's performing this action
         const initiator = await this.userRepo.getUserById(user.id)
-        if(!initiator && user.role != 'host'){
+        if (!initiator && user.role != 'host') {
             throw new Error("Only the host can perform this action.")
         }
 
@@ -120,7 +118,7 @@ class GameService {
         if (!quiz) throw new Error('Quiz not found for game')
 
         const hashKey = `quiz:${game.game_id}:questions`
-        const payload: Record<string,string> = {}
+        const payload: Record<string, string> = {}
         const questions = (quiz.questions || []) as Question[]
         for (const question of questions) {
             payload[String(question.qu_id)] = JSON.stringify(question)
@@ -135,7 +133,7 @@ class GameService {
         const now = Date.now();
         const expiresAt = new Date(game.expires_at).getTime();
         let ttlSeconds = Math.floor((expiresAt - now) / 1000);
-        if (ttlSeconds <= 0) ttlSeconds = 3600; 
+        if (ttlSeconds <= 0) ttlSeconds = 3600;
         await this.redisClient.set(stateKey, 'live', 'EX', ttlSeconds);
 
         return { quizId: quiz.q_id, questionsCount: questions.length }
@@ -165,7 +163,7 @@ class GameService {
         }
 
         const startedAt = Date.now()
-       
+
         await this.redisClient.set(`current_question_start:${gameId}`, String(startedAt))
 
         return { question, startedAt }
@@ -173,21 +171,21 @@ class GameService {
 
     async joinGame(gamePin: number, nickname: string) {
         const game = await this.gameRepo.getGameByPIN(String(gamePin));
-        if(!game){
+        if (!game) {
             throw new Error("No active game exists with this game PIN")
         }
 
         // check the game hasn't expired
         const expiryTime = new Date(game.expires_at).getTime()
         const currentTime = Date.now()
-        if(currentTime >= expiryTime){
+        if (currentTime >= expiryTime) {
             throw new Error("Game has expired.")
         }
 
         // check the user's nickname
         const userExists = await this.gameRepo.nicknameExists(game.game_id, nickname)
-        if(!userExists){
-             throw new Error("This nickname doesn't exist for this game.")
+        if (!userExists) {
+            throw new Error("This nickname doesn't exist for this game.")
         }
 
         // add user to lobby - with a score of zero
@@ -196,11 +194,11 @@ class GameService {
         const stateKey = `game:state:${gamePin}`
         // check if a game is actually live
         const exists = await this.redisClient.exists(stateKey)
-        if(!exists) throw new Error("Game doesn't exist or has expired")
+        if (!exists) throw new Error("Game doesn't exist or has expired")
 
         // join game 
         const isNew = await this.redisClient.sadd(playersKey, nickname)
-        if(isNew === 0) throw new Error("Nickname taken")
+        if (isNew === 0) throw new Error("Nickname taken")
 
         // initialize in leaderboard zset with 0 points
         await this.redisClient.zadd(leaderboardKey, 0, nickname)
