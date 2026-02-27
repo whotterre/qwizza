@@ -19,12 +19,19 @@ The primary goal of this project is to solve the "800-user bottleneck." Most clo
 ## Project Structure
 
 ```text
-src/
-├── db/           # Drizzle schema and migrations
-├── services/     # Core game logic and scoring
-├── repositories/ # Redis and Postgres data access
-├── server.ts     # Entry point and manual DI wiring
-└── websocket.ts  # WebSocket server and broadcast logic
+drizzle.config.ts        # Drizzle configuration
+package.json             # Project manifest and scripts
+README.md                # Project overview and docs
+drizzle/                 # SQL migrations and raw SQL helpers
+src/                     # Application source
+├── index.ts             # App entry (or server.ts)
+├── db/                  # Drizzle schema and DB helpers (schema.ts)
+├── controllers/         # Express HTTP handlers
+├── services/            # Business logic and use-cases
+├── repositories/        # Data access (Postgres/Redis)
+├── routes/              # Route definitions and routers
+├── middleware/          # Auth, validation, error handlers
+└── utils/               # Small helpers and shared utilities
 
 ```
 

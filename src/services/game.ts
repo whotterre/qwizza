@@ -1,9 +1,11 @@
-
 import GameRepository from "../repositories/game";
 import { InferModel } from "drizzle-orm";
 import { users } from "../db/schema";
-import {generateUsername} from "../utils/helpers"
+import { generateUsername } from "../utils/helpers"
 import UserRepository from "../repositories/user";
+import Redis from "ioredis";
+import redis from "../utils/redis";
+import { Question } from "../types/types";
 
 export type User = InferModel<typeof users>;
 export type QuizData = { content: string; correct_answer: string }
@@ -12,9 +14,16 @@ class GameService {
     private userRepo: UserRepository
     private gameRepo: GameRepository
 
-    constructor(userRepository: UserRepository, gameRepository: GameRepository){
+    private redisClient: Redis
+
+
+    constructor(
+        userRepository: UserRepository,
+        gameRepository: GameRepository,
+        redisInstance: Redis) {
         this.userRepo = userRepository
         this.gameRepo = gameRepository
+        this.redisClient = redisInstance
     }
 
     async createGame(
@@ -26,7 +35,6 @@ class GameService {
         if (creator.role !== 'host') {
             throw new Error("Only hosts can create games");
         }
-        // Calculate expiry time: add question_duration (in minutes) to scheduled_at
         const expires_at = new Date(scheduled_at.getTime() + question_duration * 60 * 1000);
         const result = await this.gameRepo.createGame(
             name,
@@ -35,22 +43,21 @@ class GameService {
             expires_at,
             creator.id
         );
-        return result; 
+        return result;
     }
 
-    
+
     // Add player to game
-    async addPlayer(gamePin: string, email: string){
+    async addPlayer(gamePin: number, email: string) {
         // get game by id
-        const game = await this.gameRepo.getGameByPIN(gamePin);
-        console.log(game)
+        const game = await this.gameRepo.getGameByPIN(String(gamePin));
         if (!game) {
             throw new Error('Game not found');
         }
 
-        // generate unique username
         let playerNickname = generateUsername();
         let attempts = 0;
+        // Optimize this
         while (await this.gameRepo.nicknameExists(game.game_id, playerNickname)) {
             playerNickname = generateUsername();
             attempts++;
@@ -74,7 +81,7 @@ class GameService {
             return quiz;
         } catch (err: any) {
             console.error('GameService.addQuizToGame error:', err);
-            throw err; 
+            throw err;
         }
     }
 
@@ -95,7 +102,112 @@ class GameService {
         const created = await this.gameRepo.createQuestionsForQuiz(quizId, items);
         return created;
     }
-    
+
+    // Fetches quiz details and inserts them in a Redis hash
+    async initializeGame(gamePin: string, user: User) {
+        const game = await this.gameRepo.getGameByPIN(gamePin)
+        if (!game) throw new Error('Game not found')
+
+        // Ensure it's the host that's performing this action
+        const initiator = await this.userRepo.getUserById(user.id)
+        if (!initiator && user.role != 'host') {
+            throw new Error("Only the host can perform this action.")
+        }
+
+        const quiz = await this.gameRepo.getQuizByGameId(game.game_id)
+        if (!quiz) throw new Error('Quiz not found for game')
+
+        const hashKey = `quiz:${game.game_id}:questions`
+        const payload: Record<string, string> = {}
+        const questions = (quiz.questions || []) as Question[]
+        for (const question of questions) {
+            payload[String(question.qu_id)] = JSON.stringify(question)
+        }
+
+        if (Object.keys(payload).length > 0) {
+            await this.redisClient.hset(hashKey, payload)
+        }
+
+        // Set game:state:<gamePin> in Redis with expiry
+        const stateKey = `game:state:${gamePin}`;
+        const now = Date.now();
+        const expiresAt = new Date(game.expires_at).getTime();
+        let ttlSeconds = Math.floor((expiresAt - now) / 1000);
+        if (ttlSeconds <= 0) ttlSeconds = 3600;
+        await this.redisClient.set(stateKey, 'live', 'EX', ttlSeconds);
+
+        return { quizId: quiz.q_id, questionsCount: questions.length }
+    }
+
+    async startQuestion(gameId: number, questionId: number) {
+        if (!gameId || !questionId) throw new Error('gameId and questionId required')
+
+        const hashKey = `quiz:${gameId}:questions`
+        const field = String(questionId)
+
+        const raw = await this.redisClient.hget(hashKey, field)
+        if (!raw) {
+            throw new Error(`Question ${questionId} not found in Redis for game ${gameId}`)
+        }
+
+        let question: Question
+        try {
+            question = JSON.parse(raw)
+        } catch (e) {
+            throw new Error('Invalid question payload in Redis')
+        }
+
+        // Remove correct answer before sending to clients
+        if (question && typeof question === "object" && "correct_answer" in question) {
+            delete (question as Partial<Question>).correct_answer;
+        }
+
+        const startedAt = Date.now()
+
+        await this.redisClient.set(`current_question_start:${gameId}`, String(startedAt))
+
+        return { question, startedAt }
+    }
+
+    async joinGame(gamePin: number, nickname: string) {
+        const game = await this.gameRepo.getGameByPIN(String(gamePin));
+        if (!game) {
+            throw new Error("No active game exists with this game PIN")
+        }
+
+        // check the game hasn't expired
+        const expiryTime = new Date(game.expires_at).getTime()
+        const currentTime = Date.now()
+        if (currentTime >= expiryTime) {
+            throw new Error("Game has expired.")
+        }
+
+        // check the user's nickname
+        const userExists = await this.gameRepo.nicknameExists(game.game_id, nickname)
+        if (!userExists) {
+            throw new Error("This nickname doesn't exist for this game.")
+        }
+
+        // add user to lobby - with a score of zero
+        const playersKey = `game:players:${gamePin}`
+        const leaderboardKey = `game:leaderboard:${gamePin}`
+        const stateKey = `game:state:${gamePin}`
+        // check if a game is actually live
+        const exists = await this.redisClient.exists(stateKey)
+        if (!exists) throw new Error("Game doesn't exist or has expired")
+
+        // join game 
+        const isNew = await this.redisClient.sadd(playersKey, nickname)
+        if (isNew === 0) throw new Error("Nickname taken")
+
+        // initialize in leaderboard zset with 0 points
+        await this.redisClient.zadd(leaderboardKey, 0, nickname)
+
+        return {
+            success: true
+        }
+    }
+
 }
 
 export default GameService
