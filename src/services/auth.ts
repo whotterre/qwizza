@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
-import { sign } from 'jsonwebtoken';
-import { Request, Response } from 'express';
+import { sign, type SignOptions } from 'jsonwebtoken';
 import UserRepository from "../repositories/user"
+import { getErrorMessage } from "../utils/helpers"
 
 
 function validateAuthInput(email: string, password: string, role?: string) {
@@ -56,14 +56,15 @@ class AuthService {
             id: user.id,
             role: user.role
         }
-        const JWT_SECRET = process.env.JWT_SECRET!;
+        const JWT_SECRET = process.env.JWT_SECRET;
+        const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN ?? '1Hr') as SignOptions['expiresIn'];
         if (!JWT_SECRET) {
             return { error: 'JWT secret not configured' };
         }
         const token = sign(
             payload,
-            JWT_SECRET!,
-            {expiresIn: 1 * 3600 * 1000} 
+            JWT_SECRET,
+            { expiresIn: JWT_EXPIRES_IN }
         );
         return { token, ...user };
     }
