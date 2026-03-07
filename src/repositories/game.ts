@@ -1,6 +1,6 @@
 import { NodePgDatabase } from "drizzle-orm/node-postgres"
 import { eq, and, inArray } from "drizzle-orm"
-import { games, nicknames, quizzes, questions, answers } from "../db/schema"
+import { games, nicknames, quizzes, questions, answers, users } from "../db/schema"
 import { generatePIN, getErrorMessage } from "../utils/helpers"
 import { QuizData } from "../services/game"
 import { Question, QuestionWithAnswers, Quiz } from "../types/types"
@@ -56,10 +56,12 @@ class GameRepository {
     }
 
 
-    async createNickname(game_id: number, nickname: string) {
+    async createNickname(game_id: number, nickname: string, email?: string, user_id?: number) {
         const result = await this.dbClient.insert(nicknames).values({
             g_id: game_id,
             name: nickname,
+            email: email || null,
+            user_id: user_id || null,
         }).returning();
         return result[0];
     }
@@ -145,6 +147,22 @@ class GameRepository {
      async getGamesByHostId(hostId: number) {
         const result = await this.dbClient.select().from(games).where(eq(games.host_id, hostId));
         return result;
+    }
+
+    async getNicknameByGameIdAndName(gameId: number, nickname: string) {
+        const result = await this.dbClient.select().from(nicknames)
+            .where(and(eq(nicknames.g_id, gameId), eq(nicknames.name, nickname)))
+            .limit(1);
+        return result[0] || null;
+    }
+
+    async getUserByNickname(gameId: number, nickname: string) {
+        const nicknameRecord = await this.getNicknameByGameIdAndName(gameId, nickname);
+        if (!nicknameRecord || !nicknameRecord.user_id) {
+            return null;
+        }
+        const userResult = await this.dbClient.select().from(users).where(eq(users.id, nicknameRecord.user_id)).limit(1);
+        return userResult[0] || null;
     }
 }
 

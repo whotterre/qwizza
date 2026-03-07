@@ -51,7 +51,7 @@ class GameService {
 
 
     // Add player to game
-    async addPlayer(gamePin: string, email: string) {
+    async addPlayer(gamePin: string, email?: string) {
         // get game by id
         const game = await this.gameRepo.getGameByPIN(gamePin);
         if (!game) {
@@ -66,8 +66,15 @@ class GameService {
             if (attempts >= MAX_NICKNAME_GENERATION_ATTEMPTS) throw new Error('Could not generate unique nickname');
         }
         
-        // create nickname record
-        const newNickname = await this.gameRepo.createNickname(game.game_id, playerNickname);
+        // If email provided, try to link to user account
+        let userId: number | undefined;
+        if (email) {
+            const user = await this.userRepo.getUserByEmail(email);
+            userId = user?.id;
+        }
+
+        // create nickname record with optional email and user_id
+        const newNickname = await this.gameRepo.createNickname(game.game_id, playerNickname, email, userId);
 
         return { nickname: newNickname };
 
@@ -77,6 +84,7 @@ class GameService {
         try {
             const game = await this.gameRepo.getGameById(gameId);
             if (!game) throw new Error('Game not found');
+            console.log(game.host_id, ":", creator.id)
             if (game.host_id !== creator.id) throw new Error('Only the host can add a quiz');
 
             const quiz = await this.gameRepo.createQuizForGame(gameId, title!);
@@ -258,6 +266,11 @@ class GameService {
         return {
             success: true
         }
+    }
+
+    async getUserForReward(gameId: number, nickname: string): Promise<User | null> {
+        const user = await this.gameRepo.getUserByNickname(gameId, nickname);
+        return user || null;
     }
 
 }
