@@ -35,6 +35,10 @@ class GameService {
             throw new Error("Only hosts can create games");
         }
         const expires_at = new Date(scheduled_at.getTime() + question_duration * 60 * 1000);
+        // check if the expiry time has elapsed
+        if (Date.now() > expires_at.getTime()) {
+            throw new Error("Expiry time has elapsed")
+        }
         const result = await this.gameRepo.createGame(
             name,
             question_duration,
@@ -61,7 +65,7 @@ class GameService {
             attempts++;
             if (attempts >= MAX_NICKNAME_GENERATION_ATTEMPTS) throw new Error('Could not generate unique nickname');
         }
-
+        
         // create nickname record
         const newNickname = await this.gameRepo.createNickname(game.game_id, playerNickname);
 
@@ -164,7 +168,7 @@ class GameService {
             console.error('Redis hget failed:', message);
             throw new Error('Failed to retrieve question from cache');
         }
-        
+
         if (!raw) {
             throw new Error(`Question ${questionId} not found in Redis for game ${gameId}`)
         }
@@ -217,7 +221,7 @@ class GameService {
         const playersKey = `game:players:${gamePin}`
         const leaderboardKey = `game:leaderboard:${gamePin}`
         const stateKey = `game:state:${gamePin}`
-        
+
         // check if a game is actually live
         let stateExists: number;
         try {
@@ -227,7 +231,7 @@ class GameService {
             console.error('Redis exists check failed:', message);
             throw new Error('Failed to verify game state');
         }
-        
+
         if (!stateExists) throw new Error("Game doesn't exist or has expired")
 
         // join game 
@@ -239,7 +243,7 @@ class GameService {
             console.error('Redis sadd failed:', message);
             throw new Error('Failed to add player to game');
         }
-        
+
         if (isNew === 0) throw new Error("Nickname taken")
 
         // initialize in leaderboard zset with 0 points
