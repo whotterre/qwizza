@@ -40,9 +40,13 @@ export default class GameSocketHandler {
                         case GameSocketHandler.Events.START_QUESTIONS:
                             this.startQuestionLoop(socket, message.payload);
                             break;
+                        default:
+                            socket.send(JSON.stringify({ type: GameSocketHandler.Events.ERROR, payload: { message: `Unknown event type: ${message.type}` } }));
                     }
                 } catch (err) {
-                    socket.send(JSON.stringify({ type: GameSocketHandler.Events.ERROR, payload: { message: 'Invalid message format' } }));
+                    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+                    console.error('Message parsing error:', errorMessage, 'Data:', data.toString());
+                    socket.send(JSON.stringify({ type: GameSocketHandler.Events.ERROR, payload: { message: `Invalid message format: ${errorMessage}` } }));
                 }
             });
 
@@ -79,24 +83,41 @@ export default class GameSocketHandler {
         socket: WebSocket & { gamePin?: string; nickname?: string },
         payload: { gameId: number; questionDurationMs: number }
     ) {
-        const { gameId, questionDurationMs } = payload;
-        const gamePin = socket.gamePin;
-        if (!gamePin) return;
+        try {
+            const { gameId, questionDurationMs } = payload;
+            const gamePin = socket.gamePin;
+            
+            if (!gamePin) {
+                socket.send(JSON.stringify({
+                    type: GameSocketHandler.Events.ERROR,
+                    payload: { message: 'Not joined to a game yet. Join a game first.' }
+                }));
+                return;
+            }
 
-        const hashKey = `quiz:${gameId}:questions`;
+            if (!gameId || !questionDurationMs) {
+                socket.send(JSON.stringify({
+                    type: GameSocketHandler.Events.ERROR,
+                    payload: { message: 'Invalid payload. Expected: { gameId: number, questionDurationMs: number }' }
+                }));
+                return;
+            }
 
-        // Fetch all question fields (IDs) from the Redis hash
-        const rawQuestions = await this.redisClient.hgetall(hashKey);
-        if (!rawQuestions || Object.keys(rawQuestions).length === 0) {
-            socket.send(JSON.stringify({
-                type: GameSocketHandler.Events.ERROR,
-                payload: { message: 'No questions found for this game.' }
-            }));
-            return;
-        }
+            const hashKey = `quiz:${gameId}:questions`;
 
-        const questionIds = Object.keys(rawQuestions);
-        let remaining = questionIds.length;
+            // Fetch all question fields (IDs) from the Redis hash
+            const rawQuestions = await this.redisClient.hgetall(hashKey);
+            
+            if (!rawQuestions || Object.keys(rawQuestions).length === 0) {
+                socket.send(JSON.stringify({
+                    type: GameSocketHandler.Events.ERROR,
+                    payload: { message: `No questions found for game ${gameId}. Make sure the game was initialized first.` }
+                }));
+                return;
+            }
+
+            const questionIds = Object.keys(rawQuestions);
+            let remaining = questionIds.length;
 
         for (const questionId of questionIds) {
             const question: Question = JSON.parse(rawQuestions[questionId]);
@@ -137,6 +158,13 @@ export default class GameSocketHandler {
         // Clean up Redis game state
         await this.redisClient.del(`game:state:${gamePin}`);
         await this.redisClient.del(`game:players:${gamePin}`);
+        } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            socket.send(JSON.stringify({
+                type: GameSocketHandler.Events.ERROR,
+                payload: { message: `Error starting questions: ${errorMsg}` }
+            }));
+        }
     }
 
 

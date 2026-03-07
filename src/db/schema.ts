@@ -53,6 +53,8 @@ export const nicknames = pgTable("nicknames", {
     n_id: serial("n_id").primaryKey(),
     g_id: integer("g_id").references(() => games.game_id).notNull(),
     name: varchar("name", { length: 32 }).notNull(),
+    email: varchar("email", { length: 255 }), // Optional: link to user account
+    user_id: integer("user_id").references(() => users.id), // Optional: direct user linkage for rewards
     created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

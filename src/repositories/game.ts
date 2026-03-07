@@ -1,7 +1,7 @@
 import { NodePgDatabase } from "drizzle-orm/node-postgres"
-import { eq, and } from "drizzle-orm"
-import { games, nicknames, quizzes, questions, answers } from "../db/schema"
-import { generatePIN } from "../utils/helpers"
+import { eq, and, inArray } from "drizzle-orm"
+import { games, nicknames, quizzes, questions, answers, users } from "../db/schema"
+import { generatePIN, getErrorMessage } from "../utils/helpers"
 import { QuizData } from "../services/game"
 import { Question, QuestionWithAnswers, Quiz } from "../types/types"
 
@@ -56,10 +56,12 @@ class GameRepository {
     }
 
 
-    async createNickname(game_id: number, nickname: string) {
+    async createNickname(game_id: number, nickname: string, email?: string, user_id?: number) {
         const result = await this.dbClient.insert(nicknames).values({
             g_id: game_id,
             name: nickname,
+            email: email || null,
+            user_id: user_id || null,
         }).returning();
         return result[0];
     }
@@ -71,8 +73,12 @@ class GameRepository {
 
     // Create one quiz for a game (only one quiz allowed per game)
     async createQuizForGame(game_id: number, title: string) {
-        // check existing
-        const existing = await this.dbClient.select().from(quizzes).where(eq(quizzes.game_id, game_id)).limit(1);
+        // check if existing
+        const existing = await this.dbClient
+        .select()
+        .from(quizzes)
+        .where(eq(quizzes.game_id, game_id))
+        .limit(1);
         if (existing && existing.length > 0) {
             throw new Error('Quiz already exists for this game');
         }
@@ -80,11 +86,11 @@ class GameRepository {
             console.log(title, game_id)
             const [row] = await this.dbClient.insert(quizzes).values({ game_id, title, created_at: new Date() }).returning();
             return row;
-        } catch (err: any) {
+        } catch (err) {
+            const message = getErrorMessage(err);
             console.error('GameRepository.createQuizForGame failed:', {
-                error: err instanceof Error ? err.message : String(err),
+                error: message,
                 payload: { game_id, title },
-                raw: err,
             });
             throw err;
         }
@@ -100,11 +106,11 @@ class GameRepository {
         if (!items || items.length === 0) return [];
         const inserted = await this.dbClient.transaction(async (tx) => {
             const created: QuizData[] = [];
-            for (const it of items) {
+            for (const item of items) {
                 const [row] = await tx.insert(questions).values({
                     quiz_id,
-                    content: it.content,
-                    correct_answer: it.correct_answer,
+                    content: item.content,
+                    correct_answer: item.correct_answer,
                 }).returning();
                 created.push(row);
             }
@@ -120,15 +126,17 @@ class GameRepository {
         // fetch questions for the quiz
         const questionRows: Question[] = await this.dbClient.select().from(questions).where(eq(questions.quiz_id, quiz.q_id));
 
-        // for each question fetch its answers and attach
-        const questionsWithAnswers: QuestionWithAnswers[] = [];
-        for (const q of questionRows) {
-            const answerRows = await this.dbClient.select().from(answers).where(eq(answers.qu_id, q.qu_id));
-            questionsWithAnswers.push({
-                ...q,
-                answers: answerRows || [],
-            });
-        }
+        // fetch all answers for the quiz's questions at once
+        const questionIds = questionRows.map(q => q.qu_id);
+        const allAnswers = questionIds.length > 0 
+            ? await this.dbClient.select().from(answers).where(inArray(answers.qu_id, questionIds))
+            : [];
+
+        // map answers to their respective questions
+        const questionsWithAnswers: QuestionWithAnswers[] = questionRows.map(q => ({
+            ...q,
+            answers: allAnswers.filter(a => a.qu_id === q.qu_id) || [],
+        }));
 
         return {
             ...quiz,
@@ -139,6 +147,22 @@ class GameRepository {
      async getGamesByHostId(hostId: number) {
         const result = await this.dbClient.select().from(games).where(eq(games.host_id, hostId));
         return result;
+    }
+
+    async getNicknameByGameIdAndName(gameId: number, nickname: string) {
+        const result = await this.dbClient.select().from(nicknames)
+            .where(and(eq(nicknames.g_id, gameId), eq(nicknames.name, nickname)))
+            .limit(1);
+        return result[0] || null;
+    }
+
+    async getUserByNickname(gameId: number, nickname: string) {
+        const nicknameRecord = await this.getNicknameByGameIdAndName(gameId, nickname);
+        if (!nicknameRecord || !nicknameRecord.user_id) {
+            return null;
+        }
+        const userResult = await this.dbClient.select().from(users).where(eq(users.id, nicknameRecord.user_id)).limit(1);
+        return userResult[0] || null;
     }
 }
 

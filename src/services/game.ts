@@ -1,10 +1,9 @@
 import GameRepository from "../repositories/game";
 import { InferModel } from "drizzle-orm";
 import { users } from "../db/schema";
-import { generateUsername } from "../utils/helpers"
+import { generateUsername, getErrorMessage, MAX_NICKNAME_GENERATION_ATTEMPTS } from "../utils/helpers"
 import UserRepository from "../repositories/user";
 import Redis from "ioredis";
-import redis from "../utils/redis";
 import { Question } from "../types/types";
 
 export type User = InferModel<typeof users>;
@@ -36,6 +35,10 @@ class GameService {
             throw new Error("Only hosts can create games");
         }
         const expires_at = new Date(scheduled_at.getTime() + question_duration * 60 * 1000);
+        // check if the expiry time has elapsed
+        if (Date.now() > expires_at.getTime()) {
+            throw new Error("Expiry time has elapsed")
+        }
         const result = await this.gameRepo.createGame(
             name,
             question_duration,
@@ -48,24 +51,30 @@ class GameService {
 
 
     // Add player to game
-    async addPlayer(gamePin: number, email: string) {
+    async addPlayer(gamePin: string, email?: string) {
         // get game by id
-        const game = await this.gameRepo.getGameByPIN(String(gamePin));
+        const game = await this.gameRepo.getGameByPIN(gamePin);
         if (!game) {
             throw new Error('Game not found');
         }
 
         let playerNickname = generateUsername();
         let attempts = 0;
-        // Optimize this
         while (await this.gameRepo.nicknameExists(game.game_id, playerNickname)) {
             playerNickname = generateUsername();
             attempts++;
-            if (attempts > 10) break;
+            if (attempts >= MAX_NICKNAME_GENERATION_ATTEMPTS) throw new Error('Could not generate unique nickname');
+        }
+        
+        // If email provided, try to link to user account
+        let userId: number | undefined;
+        if (email) {
+            const user = await this.userRepo.getUserByEmail(email);
+            userId = user?.id;
         }
 
-        // create nickname record
-        const newNickname = await this.gameRepo.createNickname(game.game_id, playerNickname);
+        // create nickname record with optional email and user_id
+        const newNickname = await this.gameRepo.createNickname(game.game_id, playerNickname, email, userId);
 
         return { nickname: newNickname };
 
@@ -75,12 +84,14 @@ class GameService {
         try {
             const game = await this.gameRepo.getGameById(gameId);
             if (!game) throw new Error('Game not found');
+            console.log(game.host_id, ":", creator.id)
             if (game.host_id !== creator.id) throw new Error('Only the host can add a quiz');
 
             const quiz = await this.gameRepo.createQuizForGame(gameId, title!);
             return quiz;
-        } catch (err: any) {
-            console.error('GameService.addQuizToGame error:', err);
+        } catch (err) {
+            const message = getErrorMessage(err);
+            console.error('GameService.addQuizToGame error:', message);
             throw err;
         }
     }
@@ -110,7 +121,7 @@ class GameService {
 
         // Ensure it's the host that's performing this action
         const initiator = await this.userRepo.getUserById(user.id)
-        if (!initiator && user.role != 'host') {
+        if (!initiator || user.role != 'host') {
             throw new Error("Only the host can perform this action.")
         }
 
@@ -125,7 +136,13 @@ class GameService {
         }
 
         if (Object.keys(payload).length > 0) {
-            await this.redisClient.hset(hashKey, payload)
+            try {
+                await this.redisClient.hset(hashKey, payload)
+            } catch (err) {
+                const message = getErrorMessage(err);
+                console.error('Redis hset failed:', message);
+                throw new Error('Failed to initialize game cache');
+            }
         }
 
         // Set game:state:<gamePin> in Redis with expiry
@@ -134,18 +151,32 @@ class GameService {
         const expiresAt = new Date(game.expires_at).getTime();
         let ttlSeconds = Math.floor((expiresAt - now) / 1000);
         if (ttlSeconds <= 0) ttlSeconds = 3600;
-        await this.redisClient.set(stateKey, 'live', 'EX', ttlSeconds);
+        try {
+            await this.redisClient.set(stateKey, 'live', 'EX', ttlSeconds);
+        } catch (err) {
+            const message = getErrorMessage(err);
+            console.error('Redis set failed:', message);
+            throw new Error('Failed to set game state');
+        }
 
         return { quizId: quiz.q_id, questionsCount: questions.length }
     }
 
     async startQuestion(gameId: number, questionId: number) {
-        if (!gameId || !questionId) throw new Error('gameId and questionId required')
+        if (!gameId || !questionId) throw new Error('gameId and questionId are required')
 
         const hashKey = `quiz:${gameId}:questions`
         const field = String(questionId)
 
-        const raw = await this.redisClient.hget(hashKey, field)
+        let raw: string | null;
+        try {
+            raw = await this.redisClient.hget(hashKey, field)
+        } catch (err) {
+            const message = getErrorMessage(err);
+            console.error('Redis hget failed:', message);
+            throw new Error('Failed to retrieve question from cache');
+        }
+
         if (!raw) {
             throw new Error(`Question ${questionId} not found in Redis for game ${gameId}`)
         }
@@ -164,7 +195,13 @@ class GameService {
 
         const startedAt = Date.now()
 
-        await this.redisClient.set(`current_question_start:${gameId}`, String(startedAt))
+        try {
+            await this.redisClient.set(`current_question_start:${gameId}`, String(startedAt))
+        } catch (err) {
+            const message = getErrorMessage(err);
+            console.error('Redis set question start failed:', message);
+            throw new Error('Failed to record question start time');
+        }
 
         return { question, startedAt }
     }
@@ -192,20 +229,48 @@ class GameService {
         const playersKey = `game:players:${gamePin}`
         const leaderboardKey = `game:leaderboard:${gamePin}`
         const stateKey = `game:state:${gamePin}`
+
         // check if a game is actually live
-        const exists = await this.redisClient.exists(stateKey)
-        if (!exists) throw new Error("Game doesn't exist or has expired")
+        let stateExists: number;
+        try {
+            stateExists = await this.redisClient.exists(stateKey)
+        } catch (err) {
+            const message = getErrorMessage(err);
+            console.error('Redis exists check failed:', message);
+            throw new Error('Failed to verify game state');
+        }
+
+        if (!stateExists) throw new Error("Game doesn't exist or has expired")
 
         // join game 
-        const isNew = await this.redisClient.sadd(playersKey, nickname)
+        let isNew: number;
+        try {
+            isNew = await this.redisClient.sadd(playersKey, nickname)
+        } catch (err) {
+            const message = getErrorMessage(err);
+            console.error('Redis sadd failed:', message);
+            throw new Error('Failed to add player to game');
+        }
+
         if (isNew === 0) throw new Error("Nickname taken")
 
         // initialize in leaderboard zset with 0 points
-        await this.redisClient.zadd(leaderboardKey, 0, nickname)
+        try {
+            await this.redisClient.zadd(leaderboardKey, 0, nickname)
+        } catch (err) {
+            const message = getErrorMessage(err);
+            console.error('Redis zadd failed:', message);
+            throw new Error('Failed to initialize leaderboard entry');
+        }
 
         return {
             success: true
         }
+    }
+
+    async getUserForReward(gameId: number, nickname: string): Promise<User | null> {
+        const user = await this.gameRepo.getUserByNickname(gameId, nickname);
+        return user || null;
     }
 
 }
