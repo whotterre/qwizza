@@ -5,6 +5,7 @@ import UserRepository from "../repositories/user";
 import redis from '../utils/redis'
 import db from '../index';
 import GameService from '../services/game';
+import { getErrorMessage } from '../utils/helpers';
 
 const gameRepo = new GameRepository(db);
 const userRepo = new UserRepository(db);
@@ -23,9 +24,10 @@ export const createGameController = async (req: Request, res: Response) => {
 
         const game = await gameService.createGame(creator, name, Number(question_duration), scheduledAtDate);
         return res.status(201).json({ game });
-    } catch (err: any) {
-        console.error('createGameController error:', err);
-        return res.status(500).json({ error: err.message || 'Internal error' });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('createGameController error:', message);
+        return res.status(500).json({ error: message });
     }
 };
 
@@ -36,9 +38,10 @@ export const addPlayerController = async (req: Request, res: Response) => {
         if (!pin) return res.status(400).json({ error: 'Missing game PIN' });
         const result = await gameService.addPlayer(pin, email);
         return res.status(201).json({ player: result.nickname });
-    } catch (err: any) {
-        console.error('addPlayerController error:', err);
-        return res.status(500).json({ error: err.message || 'Internal error' });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('addPlayerController error:', message);
+        return res.status(500).json({ error: message });
     }
 };
 
@@ -56,9 +59,10 @@ export const addQuizController = async (req: Request, res: Response) => {
 
         const quiz = await gameService.addQuizToGame(creator, Number(game.game_id), title);
         return res.status(201).json({ quiz });
-    } catch (err: any) {
-        console.error('addQuizController error:', err);
-        return res.status(400).json({ error: err.message || 'Error creating quiz' });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('addQuizController error:', message);
+        return res.status(400).json({ error: message });
     }
 }
 
@@ -73,9 +77,10 @@ export const addQuestionsController = async (req: Request, res: Response) => {
 
         const created = await gameService.addQuestionsToQuiz(creator, Number(id), items);
         return res.status(201).json({ questions: created });
-    } catch (err: any) {
-        console.error('addQuestionsController error:', err);
-        return res.status(400).json({ error: err.message || 'Error creating questions' });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('addQuestionsController error:', message);
+        return res.status(400).json({ error: message });
     }
 }
 
@@ -90,9 +95,10 @@ export const initializeGameController = async (req: Request, res: Response) => {
             message: "Successfully initialized game",
             result
         })
-    } catch (err: any) {
-        console.error('addQuestionsController error:', err);
-        return res.status(400).json({ error: err.message || 'Error initializing game' });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('initializeGameController error:', message);
+        return res.status(400).json({ error: message });
     }
 }
 
@@ -105,9 +111,10 @@ export const joinGame = async (req: Request, res: Response) => {
             message: "Successfully joined game",
             result
         });
-    } catch (err: any) {
-        console.error("An error occurred while trying to join game", err);
-        const msg = err.message || "Error joining game";
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error("An error occurred while trying to join game", message);
+        const msg = message;
         if (msg.includes("expired") || msg.includes("No active game")) {
             return res.status(404).json({ error: msg });
         } else if (msg.includes("nickname") || msg.includes("Nickname taken")) {
@@ -128,8 +135,9 @@ export const getHostGamesController = async (req: Request, res: Response) => {
         }
         const games = await gameRepo.getGamesByHostId(host.id);
         return res.status(200).json({ games });
-    } catch (err: any) {
-        console.error('getHostGamesController error:', err);
-        return res.status(500).json({ error: err.message || 'Internal error' });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('getHostGamesController error:', message);
+        return res.status(500).json({ error: message });
     }
 };

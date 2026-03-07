@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import AuthService from '../services/auth';
 import UserRepository from '../repositories/user';
 import db from '../index';
+import { getErrorMessage } from '../utils/helpers';
 
 const userRepo = new UserRepository(db);
 const authService = new AuthService(userRepo);
@@ -16,9 +17,10 @@ export const signUpController = async (req: Request, res: Response) => {
     const { user } = result;
     const { password_hash, ...safeUser } = user;
     return res.status(201).json({ user: safeUser });
-  } catch (err: any) {
-    console.error('signUpController error:', err);
-    return res.status(500).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    const message = getErrorMessage(err);
+    console.error('signUpController error:', message);
+    return res.status(500).json({ error: message });
   }
 };
 
@@ -31,9 +33,10 @@ export const loginController = async (req: Request, res: Response) => {
     }
     const { password_hash, ...safeUser } = result;
     return res.status(200).json({ user: safeUser });
-  } catch (err: any) {
-    console.error('loginController error:', err);
-    return res.status(500).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    const message = getErrorMessage(err);
+    console.error('loginController error:', message);
+    return res.status(500).json({ error: message });
   }
 };
 
@@ -49,9 +52,10 @@ export const deleteUserController = async (req: Request, res: Response) => {
     }
     const { password_hash, ...safeUser } = result || {};
     return res.status(200).json({ user: safeUser, message: 'User deleted successfully' });
-  } catch (err: any) {
-    console.error('deleteUserController error:', err);
-    return res.status(500).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    const message = getErrorMessage(err);
+    console.error('deleteUserController error:', message);
+    return res.status(500).json({ error: message });
   }
 };
 

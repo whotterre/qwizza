@@ -1,10 +1,9 @@
 import GameRepository from "../repositories/game";
 import { InferModel } from "drizzle-orm";
 import { users } from "../db/schema";
-import { generateUsername } from "../utils/helpers"
+import { generateUsername, getErrorMessage } from "../utils/helpers"
 import UserRepository from "../repositories/user";
 import Redis from "ioredis";
-import redis from "../utils/redis";
 import { Question } from "../types/types";
 
 export type User = InferModel<typeof users>;
@@ -57,11 +56,10 @@ class GameService {
 
         let playerNickname = generateUsername();
         let attempts = 0;
-        // Optimize this
         while (await this.gameRepo.nicknameExists(game.game_id, playerNickname)) {
             playerNickname = generateUsername();
             attempts++;
-            if (attempts > 10) break;
+            if (attempts >= 10) throw new Error('Could not generate unique nickname');
         }
 
         // create nickname record
@@ -79,8 +77,9 @@ class GameService {
 
             const quiz = await this.gameRepo.createQuizForGame(gameId, title!);
             return quiz;
-        } catch (err: any) {
-            console.error('GameService.addQuizToGame error:', err);
+        } catch (err) {
+            const message = getErrorMessage(err);
+            console.error('GameService.addQuizToGame error:', message);
             throw err;
         }
     }
@@ -110,7 +109,7 @@ class GameService {
 
         // Ensure it's the host that's performing this action
         const initiator = await this.userRepo.getUserById(user.id)
-        if (!initiator && user.role != 'host') {
+        if (!initiator || user.role != 'host') {
             throw new Error("Only the host can perform this action.")
         }
 
