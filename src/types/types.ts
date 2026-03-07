@@ -25,3 +25,8 @@ export type QuestionWithAnswers = {
     correct_answer: string;
     answers: Answer[];
 };
+
+export type AuthenticatedUser = {
+    id: number;
+    role: 'player' | 'host';
+};

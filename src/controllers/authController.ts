@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import AuthService from '../services/auth';
 import UserRepository from '../repositories/user';
 import db from '../index';
-import { getErrorMessage } from '../utils/helpers';
+import { getErrorMessage, MIN_PASSWORD_LENGTH } from '../utils/helpers';
 
 const userRepo = new UserRepository(db);
 const authService = new AuthService(userRepo);
@@ -10,6 +10,12 @@ const authService = new AuthService(userRepo);
 export const signUpController = async (req: Request, res: Response) => {
   try {
     const { email, password, role } = req.body;
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Valid email is required' });
+    }
+    if (!password || password.length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    }
     const result = await authService.validateAndSignUp(email, password, role);
     if ('error' in result) {
       return res.status(400).json({ error: result.error });
@@ -27,6 +33,12 @@ export const signUpController = async (req: Request, res: Response) => {
 export const loginController = async (req: Request, res: Response) => {
   try {
     const { email, password, role } = req.body;
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Valid email is required' });
+    }
+    if (!password || password.length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    }
     const result = await authService.validateAndLogin(email, password, role);
     if ('error' in result) {
       return res.status(400).json({ error: result.error });
