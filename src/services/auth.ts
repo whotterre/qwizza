@@ -51,7 +51,7 @@ class AuthService {
 
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) return { error: 'Invalid password' };
-        // sign jwt with expiry
+        
         const payload = {
             id: user.id,
             role: user.role
