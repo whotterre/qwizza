@@ -10,5 +10,5 @@ router.post('/games/:pin/quiz', authMiddleware, addQuizController);
 router.post('/quizzes/:id/questions', authMiddleware, addQuestionsController);
 router.get('/games/host', authMiddleware, getHostGamesController);
 router.get('/game/initialize/:pin', authMiddleware, initializeGameController);
-router.post('/game/join/:pin', authMiddleware, joinGame)
+router.post('/game/join/:pin', joinGame)
 export default router;

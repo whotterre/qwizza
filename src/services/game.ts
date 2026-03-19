@@ -4,10 +4,10 @@ import { users } from "../db/schema";
 import { generateUsername, getErrorMessage, MAX_NICKNAME_GENERATION_ATTEMPTS } from "../utils/helpers"
 import UserRepository from "../repositories/user";
 import Redis from "ioredis";
-import { Question } from "../types/types";
+import { Question, QuestionWithAnswers } from "../types/types";
 
 export type User = InferModel<typeof users>;
-export type QuizData = { content: string; correct_answer: string }
+export type QuizData = { content: string; correct_answer: string; answers?: string[] }
 
 class GameService {
     private userRepo: UserRepository
@@ -96,9 +96,9 @@ class GameService {
         }
     }
 
-    async addQuestionsToQuiz(creator: User, quizId: number, items: { content: string; correct_answer: string }[]) {
+    async addQuestionsToQuiz(creator: User, quizId: number, items: QuizData[]) {
         if (!items || items.length === 0) throw new Error('No questions provided');
-
+        console.log(items)
         const quiz = await this.gameRepo.getQuizById(quizId);
         if (!quiz) throw new Error('Quiz not found');
 
@@ -130,14 +130,25 @@ class GameService {
 
         const hashKey = `quiz:${game.game_id}:questions`
         const payload: Record<string, string> = {}
-        const questions = (quiz.questions || []) as Question[]
+        const questions = (quiz.questions || []) as QuestionWithAnswers[]
+        
+        console.log(`[initializeGame] Storing ${questions.length} questions with answers in Redis for game ${game.game_id}`);
         for (const question of questions) {
-            payload[String(question.qu_id)] = JSON.stringify(question)
+            const questionWithAnswers = {
+                qu_id: question.qu_id,
+                quiz_id: question.quiz_id,
+                content: question.content,
+                correct_answer: question.correct_answer,
+                answers: question.answers || []
+            };
+            payload[String(question.qu_id)] = JSON.stringify(questionWithAnswers);
+            console.log(`[initializeGame] Question ${question.qu_id}: ${question.answers?.length || 0} answers included`);
         }
 
         if (Object.keys(payload).length > 0) {
             try {
                 await this.redisClient.hset(hashKey, payload)
+                console.log(`[initializeGame] Successfully stored ${Object.keys(payload).length} questions in Redis hash ${hashKey}`);
             } catch (err) {
                 const message = getErrorMessage(err);
                 console.error('Redis hset failed:', message);

@@ -37,7 +37,7 @@ class GameRepository {
 
             return result[0];
         } catch (e) {
-            console.error(e)
+            // Error handling for createGame
         }
 
     }
@@ -83,7 +83,6 @@ class GameRepository {
             throw new Error('Quiz already exists for this game');
         }
         try {
-            console.log(title, game_id)
             const [row] = await this.dbClient.insert(quizzes).values({ game_id, title, created_at: new Date() }).returning();
             return row;
         } catch (err) {
@@ -107,12 +106,22 @@ class GameRepository {
         const inserted = await this.dbClient.transaction(async (tx) => {
             const created: QuizData[] = [];
             for (const item of items) {
-                const [row] = await tx.insert(questions).values({
+                const [questionRow] = await tx.insert(questions).values({
                     quiz_id,
                     content: item.content,
                     correct_answer: item.correct_answer,
                 }).returning();
-                created.push(row);
+                
+                if (item.answers && item.answers.length > 0) {
+                    for (const answerContent of item.answers) {
+                        await tx.insert(answers).values({
+                            qu_id: questionRow.qu_id,
+                            content: answerContent,
+                        });
+                    }
+                }
+                
+                created.push(questionRow);
             }
             return created;
         });
@@ -137,7 +146,6 @@ class GameRepository {
             ...q,
             answers: allAnswers.filter(a => a.qu_id === q.qu_id) || [],
         }));
-
         return {
             ...quiz,
             questions: questionsWithAnswers,
@@ -163,6 +171,11 @@ class GameRepository {
         }
         const userResult = await this.dbClient.select().from(users).where(eq(users.id, nicknameRecord.user_id)).limit(1);
         return userResult[0] || null;
+    }
+
+    async getAllGames() {
+        const result = await this.dbClient.select().from(games);
+        return result;
     }
 }
 
