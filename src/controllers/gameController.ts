@@ -125,7 +125,7 @@ export const joinGame = async (req: Request, res: Response) => {
         if (!nickname || typeof nickname !== 'string' || nickname.trim().length === 0) {
             return res.status(400).json({ error: 'Valid nickname is required' });
         }
-        const result = await gameService.joinGame(Number(pin), nickname);
+        const result = await gameService.joinGame(Number(pin), nickname.toUpperCase());
         return res.status(200).json({
             message: "Successfully joined game",
             result
