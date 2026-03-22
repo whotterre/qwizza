@@ -120,12 +120,12 @@ export const initializeGameController = async (req: Request, res: Response) => {
 
 export const joinGame = async (req: Request, res: Response) => {
     try {
-        const { pin } = req.params;
+        const { pin } = req.params as any;
         const { nickname } = req.body;
         if (!nickname || typeof nickname !== 'string' || nickname.trim().length === 0) {
             return res.status(400).json({ error: 'Valid nickname is required' });
         }
-        const result = await gameService.joinGame(Number(pin), nickname);
+        const result = await gameService.joinGame(pin, nickname.toUpperCase());
         return res.status(200).json({
             message: "Successfully joined game",
             result
@@ -156,6 +156,193 @@ export const getHostGamesController = async (req: Request, res: Response) => {
     } catch (err) {
         const message = getErrorMessage(err);
         console.error('getHostGamesController error:', message);
+        return res.status(500).json({ error: message });
+    }
+};
+
+export const getQuizForEditingController = async (req: Request, res: Response) => {
+    try {
+        const creator = req.user;
+        const { quizId } = req.params as any;
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        if (!quizId) return res.status(400).json({ error: 'Missing quiz id' });
+
+        const fullUser = await userRepo.getUserById(creator.id);
+        if (!fullUser) return res.status(401).json({ error: 'User not found' });
+
+        const quiz = await gameService.getQuizForEditing(fullUser, Number(quizId));
+        return res.status(200).json({ quiz });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('getQuizForEditingController error:', message);
+        if (message.includes('not found')) {
+            return res.status(404).json({ error: message });
+        }
+        return res.status(400).json({ error: message });
+    }
+};
+
+export const updateQuestionController = async (req: Request, res: Response) => {
+    try {
+        const creator = req.user;
+        const { questionId } = req.params as any;
+        const { content, correct_answer } = req.body;
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        if (!questionId) return res.status(400).json({ error: 'Missing question id' });
+        if (!content || !correct_answer) {
+            return res.status(400).json({ error: 'Missing required fields: content, correct_answer' });
+        }
+
+        const fullUser = await userRepo.getUserById(creator.id);
+        if (!fullUser) return res.status(401).json({ error: 'User not found' });
+
+        const updated = await gameService.updateQuestion(fullUser, Number(questionId), content, correct_answer);
+        return res.status(200).json({ question: updated });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('updateQuestionController error:', message);
+        if (message.includes('not found')) {
+            return res.status(404).json({ error: message });
+        }
+        return res.status(400).json({ error: message });
+    }
+};
+
+export const updateAnswerController = async (req: Request, res: Response) => {
+    try {
+        const creator = req.user;
+        const { answerId } = req.params as any;
+        const { content } = req.body;
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        if (!answerId) return res.status(400).json({ error: 'Missing answer id' });
+        if (!content) return res.status(400).json({ error: 'Missing required field: content' });
+
+        const fullUser = await userRepo.getUserById(creator.id);
+        if (!fullUser) return res.status(401).json({ error: 'User not found' });
+
+        const updated = await gameService.updateAnswer(fullUser, Number(answerId), content);
+        return res.status(200).json({ answer: updated });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('updateAnswerController error:', message);
+        if (message.includes('not found')) {
+            return res.status(404).json({ error: message });
+        }
+        return res.status(400).json({ error: message });
+    }
+};
+
+export const deleteNicknameController = async (req: Request, res: Response) => {
+    try {
+        const creator = req.user;
+        const { gameId, nicknameId } = req.params as any;
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        if (!gameId || !nicknameId) {
+            return res.status(400).json({ error: 'Missing gameId or nicknameId' });
+        }
+
+        const fullUser = await userRepo.getUserById(creator.id);
+        if (!fullUser) return res.status(401).json({ error: 'User not found' });
+
+        const deleted = await gameService.deleteNickname(fullUser, Number(gameId), Number(nicknameId));
+        if (!deleted) {
+            return res.status(404).json({ error: 'Nickname not found' });
+        }
+        return res.status(200).json({ message: 'Nickname deleted successfully', nickname: deleted });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('deleteNicknameController error:', message);
+        if (message.includes('not found')) {
+            return res.status(404).json({ error: message });
+        }
+        return res.status(400).json({ error: message });
+    }
+};
+
+export const startGameController = async (req: Request, res: Response) => {
+    try {
+        const creator = req.user;
+        const { pin } = req.params as any;
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        if (!pin) return res.status(400).json({ error: 'Missing game PIN' });
+
+        const fullUser = await userRepo.getUserById(creator.id);
+        if (!fullUser) return res.status(401).json({ error: 'User not found' });
+
+        const result = await gameService.startGame(fullUser, pin);
+        return res.status(200).json(result);
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('startGameController error:', message);
+        if (message.includes('not found')) {
+            return res.status(404).json({ error: message });
+        }
+        return res.status(400).json({ error: message });
+    }
+};
+
+export const getGameByIdController = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params as any;
+        console.log(id)
+        if (!id) return res.status(400).json({ error: 'Missing game id' });
+
+        const game = await gameRepo.getGameById(Number(id));
+        console.log(game)
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+
+        return res.status(200).json({ game });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('getGameByIdController error:', message);
+        return res.status(500).json({ error: message });
+    }
+};
+
+export const getQuizByGameIdController = async (req: Request, res: Response) => {
+    try {
+        const { gameId } = req.params as any;
+        if (!gameId) return res.status(400).json({ error: 'Missing game id' });
+
+        const quiz = await gameRepo.getQuizByGameId(Number(gameId));
+        if (!quiz) return res.status(404).json({ error: 'No quiz found for this game' });
+
+        return res.status(200).json({ quiz });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('getQuizByGameIdController error:', message);
+        return res.status(500).json({ error: message });
+    }
+};
+
+export const getNicknamesController = async (req: Request, res: Response) => {
+    try {
+        const { gameId } = req.params as any;
+        if (!gameId) return res.status(400).json({ error: 'Missing game id' });
+
+        const nicknames = await gameRepo.getNicknamesForGame(Number(gameId));
+        return res.status(200).json({ nicknames });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('getNicknamesController error:', message);
+        return res.status(500).json({ error: message });
+    }
+};
+
+export const getFinalLeaderboardController = async (req: Request, res: Response) => {
+    try {
+        const { gameId } = req.params as any;
+        if (!gameId) return res.status(400).json({ error: 'Missing game id' });
+
+        const leaderboard = await gameService.getFinalLeaderboard(Number(gameId));
+        if (!leaderboard || leaderboard.length === 0) {
+            return res.status(404).json({ error: 'No leaderboard found for this game' });
+        }
+
+        return res.status(200).json({ leaderboard });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('getFinalLeaderboardController error:', message);
         return res.status(500).json({ error: message });
     }
 };
