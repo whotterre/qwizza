@@ -7,6 +7,7 @@
     "dev": "tsx src/server.ts",
     "start": "node ./dist/server.js",
     "build": "tsc",
+    "migrate": "drizzle-kit push:pg",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
