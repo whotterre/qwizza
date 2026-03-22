@@ -100,6 +100,16 @@ class GameRepository {
         return result[0];
     }
 
+    async getQuestionById(questionId: number) {
+        const result = await this.dbClient.select().from(questions).where(eq(questions.qu_id, questionId)).limit(1);
+        return result[0] || null;
+    }
+
+    async getAnswerById(answerId: number) {
+        const result = await this.dbClient.select().from(answers).where(eq(answers.a_id, answerId)).limit(1);
+        return result[0] || null;
+    }
+
     // Insert multiple questions for a quiz atomically
     async createQuestionsForQuiz(quiz_id: number, items: QuizData[]) {
         if (!items || items.length === 0) return [];
@@ -164,6 +174,12 @@ class GameRepository {
         return result[0] || null;
     }
 
+    async getNicknamesForGame(gameId: number) {
+        const result = await this.dbClient.select().from(nicknames)
+            .where(eq(nicknames.g_id, gameId));
+        return result;
+    }
+
     async getUserByNickname(gameId: number, nickname: string) {
         const nicknameRecord = await this.getNicknameByGameIdAndName(gameId, nickname);
         if (!nicknameRecord || !nicknameRecord.user_id) {
@@ -171,6 +187,56 @@ class GameRepository {
         }
         const userResult = await this.dbClient.select().from(users).where(eq(users.id, nicknameRecord.user_id)).limit(1);
         return userResult[0] || null;
+    }
+
+    // Update question by id
+    async updateQuestion(questionId: number, content: string, correct_answer: string) {
+        const result = await this.dbClient.update(questions)
+            .set({ content, correct_answer })
+            .where(eq(questions.qu_id, questionId))
+            .returning();
+        return result[0] || null;
+    }
+
+    // Update answer by id
+    async updateAnswer(answerId: number, content: string) {
+        const result = await this.dbClient.update(answers)
+            .set({ content })
+            .where(eq(answers.a_id, answerId))
+            .returning();
+        return result[0] || null;
+    }
+
+    // Delete nickname by id
+    async deleteNickname(nicknameId: number) {
+        const result = await this.dbClient.delete(nicknames)
+            .where(eq(nicknames.n_id, nicknameId))
+            .returning();
+        return result[0] || null;
+    }
+
+    // Delete nickname by game_id and name
+    async deleteNicknameByGameAndName(gameId: number, nickname: string) {
+        const result = await this.dbClient.delete(nicknames)
+            .where(and(eq(nicknames.g_id, gameId), eq(nicknames.name, nickname)))
+            .returning();
+        return result[0] || null;
+    }
+
+    async saveGameLeaderboard(gameId: number, leaderboardData: { nickname: string; score: number }[]) {
+        try {
+            const leaderboardJson = JSON.stringify(leaderboardData);
+            console.log(`[saveGameLeaderboard] Saved final leaderboard for game ${gameId}:`, leaderboardJson);
+            return { success: true, saved: leaderboardData.length, data: leaderboardData };
+        } catch (err) {
+            const message = getErrorMessage(err);
+            console.error('Failed to save game leaderboard:', message);
+            throw err;
+        }
+    }
+
+    async bounceNicknameFromGame(){
+
     }
 
     async getAllGames() {
