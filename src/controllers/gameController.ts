@@ -7,13 +7,16 @@ import db from '../index';
 import GameService from '../services/game';
 import { getErrorMessage } from '../utils/helpers';
 
-const gameRepo = new GameRepository(db);
+const gameRepo = new GameRepository(db, redis);
 const userRepo = new UserRepository(db);
 const gameService = new GameService(userRepo, gameRepo, redis);
 
 export const createGameController = async (req: Request, res: Response) => {
     try {
+        console.log('createGameController entered');
+        console.log('createGame payload:', req.body);
         const creator = (req as any).user;
+        const start = Date.now();
         const { name, question_duration, scheduled_at } = req.body;
         if (!creator) return res.status(401).json({ error: 'Unauthorized' });
         if (!name || !question_duration || !scheduled_at) {
@@ -29,6 +32,7 @@ export const createGameController = async (req: Request, res: Response) => {
         }
 
         const game = await gameService.createGame(creator, name, Number(question_duration), scheduledAtDate);
+        console.log('createGameService duration(ms):', Date.now() - start);
         return res.status(201).json({ game });
     } catch (err) {
         const message = getErrorMessage(err);

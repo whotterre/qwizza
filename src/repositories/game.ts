@@ -4,12 +4,15 @@ import { games, nicknames, quizzes, questions, answers, users } from "../db/sche
 import { generatePIN, getErrorMessage } from "../utils/helpers"
 import { QuizData } from "../services/game"
 import { Question, QuestionWithAnswers, Quiz } from "../types/types"
+import Redis from "ioredis"
 
 class GameRepository {
     private dbClient: NodePgDatabase
+    private redisClient: Redis
 
-    constructor(db: NodePgDatabase) {
+    constructor(db: NodePgDatabase, redis?: Redis) {
         this.dbClient = db
+        this.redisClient = redis as Redis
     }
 
     async createGame(
@@ -19,14 +22,26 @@ class GameRepository {
         expires_at: Date | string,
         host_id: number
     ) {
+        const withTimeout = async <T>(p: Promise<T>, ms: number, label: string): Promise<T> => {
+            let timeoutId: NodeJS.Timeout;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+                timeoutId = setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms);
+            });
+            try {
+                return await Promise.race([p, timeoutPromise]);
+            } finally {
+                clearTimeout(timeoutId!);
+            }
+        };
+
         try {
             const pin = generatePIN()
 
-            // Ensure we pass JS Date objects (or ISO strings) consistently
             const scheduledDate = scheduled_at instanceof Date ? scheduled_at : new Date(scheduled_at);
             const expiryDate = expires_at instanceof Date ? expires_at : new Date(expires_at);
 
-            const result = await this.dbClient.insert(games).values({
+            console.log('[GameRepository.createGame] inserting game', { name, question_duration, scheduledDate, expiryDate, host_id, pin });
+            const insertPromise = this.dbClient.insert(games).values({
                 name,
                 question_duration,
                 scheduled_at: scheduledDate,
@@ -35,9 +50,41 @@ class GameRepository {
                 host_id,
             } as any).returning();
 
-            return result[0];
+            let result;
+            try {
+                result = await withTimeout(insertPromise, 15000, 'db insert games');
+            } catch (err) {
+                // log pool statistics if available
+                try {
+                    // import pool lazily to avoid circular imports at module load
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { pool } = require('../index');
+                    console.error('[GameRepository.createGame] DB insert timeout; pool stats=', {
+                        totalCount: pool.totalCount,
+                        idleCount: pool.idleCount,
+                        waitingCount: pool.waitingCount,
+                    });
+                } catch (poolErr) {
+                    console.error('[GameRepository.createGame] failed to get pool stats:', poolErr);
+                }
+                console.error('[GameRepository.createGame] insert timed out or failed:', err);
+                throw err;
+            }
+
+            const game = result[0];
+
+            if (game && this.redisClient) {
+                try {
+                    await this.redisClient.setex(`game:pin:${pin}`, 900, JSON.stringify(game));
+                } catch (cacheErr) {
+                    console.error('[GameRepository.createGame] redis cache set failed:', cacheErr);
+                }
+            }
+            console.log('[GameRepository.createGame] insert complete, returning game_id=', game?.game_id);
+            return game;
         } catch (e) {
-            // Error handling for createGame
+            console.error('[GameRepository.createGame] error during createGame:', e);
+            throw e;
         }
 
     }
@@ -46,8 +93,25 @@ class GameRepository {
         if (!gamePin) {
             return
         }
+
+        // Try Redis cache first
+        if (this.redisClient) {
+            const cached = await this.redisClient.get(`game:pin:${gamePin}`);
+            if (cached) {
+                return JSON.parse(cached);
+            }
+        }
+
+        // Cache miss, query DB
         const result = await this.dbClient.select().from(games).where(eq(games.gamePin, gamePin)).limit(1)
-        return result[0]
+        const game = result[0];
+
+        // Cache for 15 minutes
+        if (game && this.redisClient) {
+            await this.redisClient.setex(`game:pin:${gamePin}`, 900, JSON.stringify(game));
+        }
+
+        return game;
     }
 
     async getGameById(id: number) {
@@ -57,13 +121,44 @@ class GameRepository {
 
 
     async createNickname(game_id: number, nickname: string, email?: string, user_id?: number) {
-        const result = await this.dbClient.insert(nicknames).values({
+        // Enqueue nickname for background persistence to avoid DB spikes.
+        // We still return a consistent object so callers can proceed.
+        const payload = {
             g_id: game_id,
             name: nickname,
             email: email || null,
             user_id: user_id || null,
-        }).returning();
-        return result[0];
+            created_at: new Date().toISOString(),
+        };
+
+        try {
+            if (this.redisClient) {
+                await this.redisClient.lpush('nicknames:queue', JSON.stringify(payload));
+            } else {
+                // Fallback to immediate DB insert if Redis not available
+                const result = await this.dbClient.insert(nicknames).values({
+                    g_id: game_id,
+                    name: nickname,
+                    email: email || null,
+                    user_id: user_id || null,
+                }).returning();
+                return result[0];
+            }
+        } catch (err) {
+            const message = getErrorMessage(err);
+            console.error('Failed to enqueue nickname for background write:', message);
+            // As a fallback, try direct insert once
+            const result = await this.dbClient.insert(nicknames).values({
+                g_id: game_id,
+                name: nickname,
+                email: email || null,
+                user_id: user_id || null,
+            }).returning();
+            return result[0];
+        }
+
+        // Return a consistent object so callers don't depend on DB-generated n_id.
+        return payload;
     }
 
     async nicknameExists(game_id: number, name: string) {

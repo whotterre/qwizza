@@ -56,21 +56,56 @@ class GameService {
             throw new Error('Game not found');
         }
 
+        // Use Redis SET for fast nickname collision detection instead of DB queries
+        const nicknameSetKey = `game:nicknames:${game.game_id}`;
         let playerNickname = generateUsername();
         let attempts = 0;
-        while (await this.gameRepo.nicknameExists(game.game_id, playerNickname)) {
+
+        while (attempts < MAX_NICKNAME_GENERATION_ATTEMPTS) {
+            const added = await this.redisClient.sadd(nicknameSetKey, playerNickname);
+            if (added === 1) {
+                // Successfully added to set (no collision)
+                break;
+            }
+            // Collision detected, generate new nickname
             playerNickname = generateUsername();
             attempts++;
-            if (attempts >= MAX_NICKNAME_GENERATION_ATTEMPTS) throw new Error('Could not generate unique nickname');
         }
 
-        // FIX: Decouple account linking from player creation — look up userId
-        // without exposing whether the email exists (no error thrown on miss)
+        if (attempts >= MAX_NICKNAME_GENERATION_ATTEMPTS) {
+            throw new Error('Could not generate unique nickname');
+        }
+
+        // Expire the set after 24 hours
+        await this.redisClient.expire(nicknameSetKey, 86400);
+
+        // FIX: Decouple account linking from player creation — look up userId with caching
         let userId: number | undefined;
         if (email) {
-            const user = await this.userRepo.getUserByEmail(email);
-            // Silently ignore unknown emails to avoid leaking registration status
-            userId = user?.id;
+            try {
+                // Check Redis cache first
+                const cached = await this.redisClient.get(`user:email:${email}`);
+                if (cached === 'NOTFOUND') {
+                    userId = undefined;
+                } else if (cached) {
+                    userId = parseInt(cached);
+                } else {
+                    // Cache miss, query DB
+                    const user = await this.userRepo.getUserByEmail(email);
+                    if (user) {
+                        userId = user.id;
+                        // Cache for 5 minutes
+                        await this.redisClient.setex(`user:email:${email}`, 300, String(user.id));
+                    } else {
+                        // Cache negative result for 5 minutes to avoid repeated lookups
+                        await this.redisClient.setex(`user:email:${email}`, 300, 'NOTFOUND');
+                    }
+                }
+            } catch (err) {
+                // User lookup is optional for gameplay; don't fail player joins when DB is stressed.
+                console.error('addPlayer user lookup failed, continuing without user_id:', getErrorMessage(err));
+                userId = undefined;
+            }
         }
 
         const newNickname = await this.gameRepo.createNickname(game.game_id, playerNickname, email, userId);
@@ -233,7 +268,9 @@ class GameService {
             throw new Error("Game has expired.")
         }
 
-        const userExists = await this.gameRepo.nicknameExists(game.game_id, nickname)
+        // Check if nickname exists in Redis SET (fast, no DB query)
+        const nicknameSetKey = `game:nicknames:${game.game_id}`;
+        const userExists = await this.redisClient.sismember(nicknameSetKey, nickname);
         if (!userExists) {
             throw new Error("This nickname doesn't exist for this game.")
         }
