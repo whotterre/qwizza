@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx src/server.ts",
+    "dev": "tsc src/server.ts",
     "start": "node ./dist/server.js",
     "build": "tsc",
     "migrate": "drizzle-kit push:pg",
@@ -35,6 +35,6 @@
     "@types/pg": "^8.16.0",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.9",
-    "tsx": "^4.21.0"
+    "typescript": "^5.8.0"
   }
 }
