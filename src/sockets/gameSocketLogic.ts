@@ -1,4 +1,4 @@
-import { WebSocket, WebSocketServer } from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import Redis from "ioredis";
 import GameRepository from "../repositories/game";
 
