@@ -20,7 +20,7 @@ export const games = pgTable("games", {
     host_id: integer("host_id").references(() => users.id).notNull(),
     question_duration: integer("question_duration").notNull(), // seconds
     scheduled_at: timestamp("scheduled_at", { withTimezone: true }).notNull(),
-    gamePin: varchar({ length: 6 }).unique().notNull(),
+    gamePin: varchar("game_pin", { length: 6 }).unique().notNull(),
     expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
     created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
