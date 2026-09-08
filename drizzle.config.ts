@@ -6,6 +6,10 @@ dotenv.config({
 });
 
 const dbUrl = new URL(process.env.DATABASE_URL!);
+const sslMode = (dbUrl.searchParams.get("sslmode") ?? process.env.DB_SSL_MODE ?? "").toLowerCase();
+const useSsl = sslMode
+  ? !["disable", "false", "0"].includes(sslMode)
+  : process.env.DB_SSL === "true";
 
 export default defineConfig({
   dialect: 'postgresql',
@@ -17,9 +21,7 @@ export default defineConfig({
     user: dbUrl.username,
     password: decodeURIComponent(dbUrl.password), 
     database: dbUrl.pathname.replace(/^\//, ''),
-    ssl: {
-       rejectUnauthorized: false, 
-    },
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
   },
   verbose: true,
   strict: true,

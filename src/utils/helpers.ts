@@ -18,7 +18,11 @@ export function generatePIN(){
 
 export function getErrorMessage(error: unknown): string {
     if (error instanceof Error) {
-        return error.message;
+        const causeMessage =
+            error.cause && typeof error.cause === 'object' && 'message' in error.cause
+                ? String((error.cause as { message: unknown }).message)
+                : null;
+        return causeMessage ? `${error.message}. Cause: ${causeMessage}` : error.message;
     }
     if (typeof error === 'string') {
         return error;

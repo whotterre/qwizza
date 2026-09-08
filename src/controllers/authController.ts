@@ -24,6 +24,7 @@ export const signUpController = async (req: Request, res: Response) => {
     const { password_hash, ...safeUser } = user;
     return res.status(201).json({ user: safeUser });
   } catch (err) {
+    console.error(err)
     const message = getErrorMessage(err);
     console.error('signUpController error:', message);
     return res.status(500).json({ error: message });
@@ -46,6 +47,7 @@ export const loginController = async (req: Request, res: Response) => {
     const { password_hash, ...safeUser } = result;
     return res.status(200).json({ user: safeUser });
   } catch (err) {
+    console.error(err)
     const message = getErrorMessage(err);
     console.error('loginController error:', message);
     return res.status(500).json({ error: message });
