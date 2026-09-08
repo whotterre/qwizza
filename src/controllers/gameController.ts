@@ -281,6 +281,52 @@ export const startGameController = async (req: Request, res: Response) => {
     }
 };
 
+export const rescheduleGameController = async (req: Request, res: Response) => {
+    try {
+        const creator = req.user;
+        const { gameId } = req.params as any;
+        const { scheduled_at, question_duration } = req.body;
+
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        if (!gameId) return res.status(400).json({ error: 'Missing game id' });
+        if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at is required' });
+
+        const scheduledAtDate = new Date(scheduled_at);
+        if (isNaN(scheduledAtDate.getTime())) {
+            return res.status(400).json({ error: 'Invalid scheduled_at' });
+        }
+
+        if (question_duration !== undefined && Number(question_duration) <= 0) {
+            return res.status(400).json({ error: 'question_duration must be greater than 0' });
+        }
+
+        const fullUser = await userRepo.getUserById(creator.id);
+        if (!fullUser) return res.status(401).json({ error: 'User not found' });
+
+        const updatedGame = await gameService.rescheduleGame(
+            fullUser,
+            Number(gameId),
+            scheduledAtDate,
+            question_duration !== undefined ? Number(question_duration) : undefined
+        );
+
+        return res.status(200).json({ game: updatedGame, message: 'Game rescheduled' });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('rescheduleGameController error:', message);
+        if (message.includes('not found')) {
+            return res.status(404).json({ error: message });
+        }
+        if (message.includes('Only the host')) {
+            return res.status(403).json({ error: message });
+        }
+        if (message.includes('already live') || message.includes('already started')) {
+            return res.status(409).json({ error: message });
+        }
+        return res.status(400).json({ error: message });
+    }
+};
+
 export const getGameByIdController = async (req: Request, res: Response) => {
     try {
         const { id } = req.params as any;

@@ -240,18 +240,6 @@ class GameService {
 
         const playersKey = `game:players:${gamePin}`
         const leaderboardKey = `game:leaderboard:${gamePin}`
-        const stateKey = `game:state:${gamePin}`
-
-        let stateExists: number;
-        try {
-            stateExists = await this.redisClient.exists(stateKey)
-        } catch (err) {
-            const message = getErrorMessage(err);
-            console.error('Redis exists check failed:', message);
-            throw new Error('Failed to verify game state');
-        }
-
-        if (!stateExists) throw new Error("Game doesn't exist or has expired")
 
         let isNew: number;
         try {
@@ -345,6 +333,71 @@ class GameService {
         const startedKey = `game:started:${gamePin}`;
         await this.redisClient.set(startedKey, 'true');
         return { success: true, message: 'Game started' };
+    }
+
+    async rescheduleGame(
+        creator: User,
+        gameId: number,
+        scheduledAt: Date,
+        questionDuration?: number
+    ) {
+        if (creator.role !== 'host') {
+            throw new Error('Only the host can reschedule games');
+        }
+
+        if (isNaN(scheduledAt.getTime())) {
+            throw new Error('Invalid scheduled_at');
+        }
+
+        const minLeadMs = 2 * 60 * 1000;
+        if (scheduledAt.getTime() < Date.now() + minLeadMs) {
+            throw new Error('scheduled_at must be at least 2 minutes in the future');
+        }
+
+        if (questionDuration !== undefined && questionDuration <= 0) {
+            throw new Error('question_duration must be greater than 0');
+        }
+
+        const game = await this.gameRepo.getGameById(gameId);
+        if (!game) {
+            throw new Error('Game not found');
+        }
+        if (game.host_id !== creator.id) {
+            throw new Error('Only the host can reschedule this game');
+        }
+
+        const stateKey = `game:state:${game.gamePin}`;
+        const startedByPinKey = `game:started:${game.gamePin}`;
+        const startedByIdKey = `game:started:${game.game_id}`;
+
+        const [isLive, startedByPin, startedById] = await Promise.all([
+            this.redisClient.exists(stateKey),
+            this.redisClient.exists(startedByPinKey),
+            this.redisClient.exists(startedByIdKey),
+        ]);
+
+        if (isLive) {
+            throw new Error('Game is already live and cannot be rescheduled');
+        }
+        if (startedByPin || startedById) {
+            throw new Error('Game has already started and cannot be rescheduled');
+        }
+
+        const durationToUse = questionDuration ?? game.question_duration;
+        const expiresAt = new Date(scheduledAt.getTime() + durationToUse * 60 * 1000);
+
+        const updated = await this.gameRepo.updateGameSchedule(
+            game.game_id,
+            scheduledAt,
+            expiresAt,
+            questionDuration
+        );
+
+        if (!updated) {
+            throw new Error('Game not found');
+        }
+
+        return updated;
     }
 
     async getFinalLeaderboard(gameId: number) {

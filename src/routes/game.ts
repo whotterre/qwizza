@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createGameController, addPlayerController, addQuizController, addQuestionsController, initializeGameController, joinGame, getHostGamesController, getQuizForEditingController, updateQuestionController, updateAnswerController, deleteNicknameController, startGameController, getGameByIdController, getQuizByGameIdController, getNicknamesController, getFinalLeaderboardController } from '../controllers/gameController';
+import { createGameController, addPlayerController, addQuizController, addQuestionsController, initializeGameController, joinGame, getHostGamesController, getQuizForEditingController, updateQuestionController, updateAnswerController, deleteNicknameController, startGameController, getGameByIdController, getQuizByGameIdController, getNicknamesController, getFinalLeaderboardController, rescheduleGameController } from '../controllers/gameController';
 import { authMiddleware } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -18,6 +18,7 @@ router.post('/game/join/:pin', joinGame);
 router.get('/quizzes/:quizId', authMiddleware, getQuizForEditingController);
 router.put('/questions/:questionId', authMiddleware, updateQuestionController);
 router.put('/answers/:answerId', authMiddleware, updateAnswerController);
+router.put('/games/:gameId/reschedule', authMiddleware, rescheduleGameController);
 router.delete('/games/:gameId/nicknames/:nicknameId', authMiddleware, deleteNicknameController);
 router.post('/games/:pin/start', authMiddleware, startGameController);
 export default router;

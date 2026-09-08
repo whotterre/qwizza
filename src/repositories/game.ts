@@ -55,6 +55,25 @@ class GameRepository {
         return result[0];
     }
 
+    async updateGameSchedule(gameId: number, scheduled_at: Date, expires_at: Date, question_duration?: number) {
+        const updatePayload: { scheduled_at: Date; expires_at: Date; question_duration?: number } = {
+            scheduled_at,
+            expires_at,
+        };
+
+        if (typeof question_duration === 'number') {
+            updatePayload.question_duration = question_duration;
+        }
+
+        const result = await this.dbClient
+            .update(games)
+            .set(updatePayload)
+            .where(eq(games.game_id, gameId))
+            .returning();
+
+        return result[0] || null;
+    }
+
 
     async createNickname(game_id: number, nickname: string, email?: string, user_id?: number) {
         const result = await this.dbClient.insert(nicknames).values({
