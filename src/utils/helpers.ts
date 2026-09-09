@@ -1,4 +1,5 @@
 import { customAlphabet } from 'nanoid';
+import crypto from 'crypto';
 
 const generateRandomUsername = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ', 5);
 
@@ -10,10 +11,15 @@ export function generateUsername(): string {
 export const MAX_NICKNAME_GENERATION_ATTEMPTS = 10;
 export const MIN_PASSWORD_LENGTH = 6;
 export const MAX_USERNAME_LENGTH = 5;
-export const PIN_MAX = 999999;
+export const PIN_LENGTH = 6;
 
-export function generatePIN(){
-    return Math.floor(Math.random() * PIN_MAX)
+export function generatePIN(): string {
+    try {
+        const n = crypto.randomInt(0, 10 ** PIN_LENGTH);
+        return String(n).padStart(PIN_LENGTH, '0');
+    } catch (e) {
+        return String(Math.floor(Math.random() * 10 ** PIN_LENGTH)).padStart(PIN_LENGTH, '0');
+    }
 }
 
 export function getErrorMessage(error: unknown): string {
