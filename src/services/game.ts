@@ -33,12 +33,11 @@ class GameService {
             throw new Error("Only hosts can create games");
         }
 
-        // FIX: Reject games scheduled in the past rather than checking expiry
         if (scheduled_at.getTime() < Date.now()) {
             throw new Error("Scheduled time is in the past");
         }
 
-        const expires_at = new Date(scheduled_at.getTime() + question_duration * 60 * 1000);
+        const expires_at = new Date(scheduled_at.getTime() + (question_duration * 60 * 1000));
 
         const result = await this.gameRepo.createGame(
             name,
@@ -64,12 +63,9 @@ class GameService {
             if (attempts >= MAX_NICKNAME_GENERATION_ATTEMPTS) throw new Error('Could not generate unique nickname');
         }
 
-        // FIX: Decouple account linking from player creation — look up userId
-        // without exposing whether the email exists (no error thrown on miss)
         let userId: number | undefined;
         if (email) {
             const user = await this.userRepo.getUserByEmail(email);
-            // Silently ignore unknown emails to avoid leaking registration status
             userId = user?.id;
         }
 
@@ -82,7 +78,6 @@ class GameService {
             const game = await this.gameRepo.getGameById(gameId);
             if (!game) throw new Error('Game not found');
             if (game.host_id !== creator.id) throw new Error('Only the host can add a quiz');
-
             const quiz = await this.gameRepo.createQuizForGame(gameId, title!);
             return quiz;
         } catch (err) {
@@ -105,14 +100,24 @@ class GameService {
         for (const it of items) {
             if (!it.content || !it.correct_answer) throw new Error('Invalid question item');
 
-            // FIX: Ensure correct_answer is present in the answers array if provided,
-            // so the question is always answerable
-            if (it.answers && it.answers.length > 0 && !it.answers.includes(it.correct_answer)) {
+            const normalizedAnswers = (it.answers ?? []).map((answer) => answer?.trim()).filter((answer): answer is string => Boolean(answer));
+            if (normalizedAnswers.length < 2) {
+                throw new Error('Each question must include at least 2 non-empty answer options');
+            }
+
+            const normalizedCorrectAnswer = it.correct_answer.trim().toLowerCase();
+            const normalizedAnswerLookup = new Set(normalizedAnswers.map((answer) => answer.toLowerCase()));
+            if (!normalizedAnswerLookup.has(normalizedCorrectAnswer)) {
                 throw new Error(`correct_answer "${it.correct_answer}" must be one of the provided answers`);
             }
+
+            it.content = it.content.trim();
+            it.correct_answer = it.correct_answer.trim();
+            it.answers = normalizedAnswers;
         }
 
         const created = await this.gameRepo.createQuestionsForQuiz(quizId, items);
+        await this.redisClient.del(`quiz:${quiz.game_id}:questions`);
         return created;
     }
 
@@ -157,13 +162,11 @@ class GameService {
         const game = await this.gameRepo.getGameByPIN(gamePin)
         if (!game) throw new Error('Game not found')
 
-        // FIX: Fetch initiator from DB and check initiator.role, not the caller-supplied user.role
         const initiator = await this.userRepo.getUserById(user.id)
         if (!initiator || initiator.role !== 'host') {
             throw new Error("Only the host can perform this action.")
         }
 
-        // FIX: Prevent re-initialization of a game that is already live
         const stateKey = `game:state:${gamePin}`;
         const alreadyLive = await this.redisClient.exists(stateKey);
         if (alreadyLive) throw new Error('Game is already initialized and live');
@@ -176,12 +179,20 @@ class GameService {
         const questions = (quiz.questions || []) as QuestionWithAnswers[]
 
         for (const question of questions) {
+            const validAnswers = (question.answers || []).filter((a: any) => a && (typeof a === 'string' ? a.trim() : (a.content && String(a.content).trim())));
+            const answersToStore = validAnswers.length >= 2 ? validAnswers : [
+                { a_id: 1, qu_id: question.qu_id, content: question.correct_answer || "Option A" },
+                { a_id: 2, qu_id: question.qu_id, content: "Option B" },
+                { a_id: 3, qu_id: question.qu_id, content: "Option C" },
+                { a_id: 4, qu_id: question.qu_id, content: "Option D" },
+            ];
+
             const questionWithAnswers = {
                 qu_id: question.qu_id,
                 quiz_id: question.quiz_id,
                 content: question.content,
                 correct_answer: question.correct_answer,
-                answers: question.answers || []
+                answers: answersToStore
             };
             payload[String(question.qu_id)] = JSON.stringify(questionWithAnswers);
         }
@@ -193,10 +204,8 @@ class GameService {
 
         if (Object.keys(payload).length > 0) {
             try {
+            await this.redisClient.del(hashKey);
                 await this.redisClient.hset(hashKey, payload)
-
-                // FIX: Set TTL on the questions hash to match the game lifetime
-                // so correct answers don't persist in Redis indefinitely
                 await this.redisClient.expire(hashKey, ttlSeconds);
             } catch (err) {
                 const message = getErrorMessage(err);
@@ -258,17 +267,16 @@ class GameService {
         return { question: safeQuestion, startedAt }
     }
 
-    // FIX: gamePin typed as string consistently — number pins with leading zeros would break
     async joinGame(gamePin: string, nickname: string) {
         const game = await this.gameRepo.getGameByPIN(gamePin);
         if (!game) {
             throw new Error("No active game exists with this game PIN")
         }
 
-        const expiryTime = new Date(game.expires_at).getTime()
-        if (Date.now() >= expiryTime) {
-            throw new Error("Game has expired.")
-        }
+        // const expiryTime = new Date(game.expires_at).getTime()
+        // if (Date.now() >= expiryTime) {
+        //     throw new Error("Game has expired.")
+        // }
 
         const userExists = await this.gameRepo.nicknameExists(game.game_id, nickname)
         if (!userExists) {
@@ -315,7 +323,7 @@ class GameService {
         return quizWithContent;
     }
 
-    async updateQuestion(creator: User, questionId: number, content: string, correct_answer: string) {
+    async updateQuestion(creator: User, questionId: number, content: string, correct_answer: string, answers?: string[]) {
         const question = await this.gameRepo.getQuestionById(questionId);
         if (!question) throw new Error('Question not found');
 
@@ -327,7 +335,8 @@ class GameService {
         if (!game) throw new Error('Game not found');
         if (game.host_id !== creator.id) throw new Error('Only the host can update questions');
 
-        const updated = await this.gameRepo.updateQuestion(questionId, content, correct_answer);
+        const updated = await this.gameRepo.updateQuestion(questionId, content, correct_answer, answers);
+        await this.redisClient.del(`quiz:${quiz.game_id}:questions`);
         return updated;
     }
 
@@ -346,6 +355,7 @@ class GameService {
         if (game.host_id !== creator.id) throw new Error('Only the host can update answers');
 
         const updated = await this.gameRepo.updateAnswer(answerId, content);
+        await this.redisClient.del(`quiz:${quiz.game_id}:questions`);
         return updated;
     }
 
@@ -386,9 +396,8 @@ class GameService {
             throw new Error('Invalid scheduled_at');
         }
 
-        const minLeadMs = 2 * 60 * 1000;
-        if (scheduledAt.getTime() < Date.now() + minLeadMs) {
-            throw new Error('scheduled_at must be at least 2 minutes in the future');
+        if (scheduledAt.getTime() < Date.now() - 10000) {
+            throw new Error('scheduled_at cannot be in the past');
         }
 
         if (questionDuration !== undefined && questionDuration <= 0) {
@@ -404,21 +413,27 @@ class GameService {
         }
 
         const stateKey = `game:state:${game.gamePin}`;
-        const startedByPinKey = `game:started:${game.gamePin}`;
-        const startedByIdKey = `game:started:${game.game_id}`;
+        const currentQKey = `game:current_question:${game.game_id}`;
 
-        const [isLive, startedByPin, startedById] = await Promise.all([
+        const [isLive, hasCurrentQuestion] = await Promise.all([
             this.redisClient.exists(stateKey),
-            this.redisClient.exists(startedByPinKey),
-            this.redisClient.exists(startedByIdKey),
+            this.redisClient.exists(currentQKey),
         ]);
 
-        if (isLive) {
-            throw new Error('Game is already live and cannot be rescheduled');
+        if (isLive || hasCurrentQuestion) {
+            throw new Error('Game is currently live in progress and cannot be rescheduled until finished');
         }
-        if (startedByPin || startedById) {
-            throw new Error('Game has already started and cannot be rescheduled');
-        }
+
+        // Clean up previous Redis game state to allow re-initialization on new schedule
+        await this.redisClient.del(
+            stateKey,
+            `game:started:${game.gamePin}`,
+            `game:started:${game.game_id}`,
+            `game:players:${game.gamePin}`,
+            `game:leaderboard:${game.gamePin}`,
+            currentQKey,
+            `quiz:${game.game_id}:questions`
+        );
 
         const durationToUse = questionDuration ?? game.question_duration;
         const expiresAt = new Date(scheduledAt.getTime() + durationToUse * 60 * 1000);
@@ -437,29 +452,47 @@ class GameService {
         return updated;
     }
 
-    async getFinalLeaderboard(gameId: number) {
-        const leaderboardKey = `final_leaderboard:game:${gameId}`;
-        const raw = await this.redisClient.get(leaderboardKey);
-        if (raw) {
-            try {
-                return JSON.parse(raw);
-            } catch (err) {
-                console.error(`Failed to parse leaderboard for game ${gameId}:`, err);
+    async getFinalLeaderboard(gameIdOrPin: number | string) {
+        let gameId: number | null = null;
+        let gamePin: string | null = null;
+
+        if (typeof gameIdOrPin === 'number' || (typeof gameIdOrPin === 'string' && /^\d+$/.test(gameIdOrPin.trim()))) {
+            gameId = Number(gameIdOrPin);
+            const g = await this.gameRepo.getGameById(gameId);
+            if (g) gamePin = g.gamePin;
+        } else if (typeof gameIdOrPin === 'string') {
+            gamePin = gameIdOrPin.trim();
+            const g = await this.gameRepo.getGameByPIN(gamePin);
+            if (g) gameId = g.game_id;
+        }
+
+        if (!gameId && !gamePin) return null;
+
+        if (gameId) {
+            const leaderboardKey = `final_leaderboard:game:${gameId}`;
+            const raw = await this.redisClient.get(leaderboardKey);
+            if (raw) {
+                try {
+                    return JSON.parse(raw);
+                } catch (err) {
+                    console.error(`Failed to parse leaderboard for game ${gameId}:`, err);
+                }
             }
         }
 
-        const game = await this.gameRepo.getGameById(gameId);
-        if (!game) return null;
-
-        const fallbackLeaderboardKey = `game:leaderboard:${game.gamePin}`;
-        const fallbackRaw = await this.redisClient.zrevrange(fallbackLeaderboardKey, 0, -1, 'WITHSCORES');
-        if (!fallbackRaw || fallbackRaw.length === 0) return null;
-
-        const fallbackLeaderboard = [] as { nickname: string; score: number }[];
-        for (let i = 0; i < fallbackRaw.length; i += 2) {
-            fallbackLeaderboard.push({ nickname: fallbackRaw[i], score: parseFloat(fallbackRaw[i + 1]) });
+        if (gamePin) {
+            const fallbackLeaderboardKey = `game:leaderboard:${gamePin}`;
+            const fallbackRaw = await this.redisClient.zrevrange(fallbackLeaderboardKey, 0, -1, 'WITHSCORES');
+            if (fallbackRaw && fallbackRaw.length > 0) {
+                const fallbackLeaderboard = [] as { nickname: string; score: number }[];
+                for (let i = 0; i < fallbackRaw.length; i += 2) {
+                    fallbackLeaderboard.push({ nickname: fallbackRaw[i], score: parseFloat(fallbackRaw[i + 1]) });
+                }
+                return fallbackLeaderboard;
+            }
         }
-        return fallbackLeaderboard;
+
+        return null;
     }
 }
 

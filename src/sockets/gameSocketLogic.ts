@@ -63,18 +63,7 @@ export default class GameSocketHandler {
                     const alreadyStarted = await this.redisClient.get(startedKey);
                     if (alreadyStarted) continue;
 
-                    const ttlSeconds = Math.ceil((expiresTime - Date.now()) / 1000) + 60;
-                    await this.redisClient.set(startedKey, '1', 'EX', ttlSeconds);
-
-                    console.log(`[Scheduled Game Monitor] Game ${game.game_id} (PIN: ${game.gamePin}) starting now`);
-
-                    this.broadcastToRoom(
-                        game.gamePin,
-                        GameSocketHandler.Events.START_GAME_READY,
-                        { gameId: game.game_id, message: 'Game is ready to start!' }
-                    );
-
-                    this.autoStartQuestions(game.game_id, game.gamePin).catch(err => {
+                    this.autoStartQuestions(game.game_id, game.gamePin, expiresTime).catch(err => {
                         const msg = err instanceof Error ? err.message : String(err);
                         console.error(`[Scheduled Game Monitor] autoStartQuestions failed for game ${game.game_id}:`, msg);
                     });
@@ -247,7 +236,71 @@ export default class GameSocketHandler {
         }
     }
 
-    private async autoStartQuestions(gameId: number, gamePin: string) {
+    private async hydrateQuestionsToRedis(gameId: number, expiresTime: number) {
+        const hashKey = `quiz:${gameId}:questions`;
+        let rawQuestions = await this.redisClient.hgetall(hashKey);
+        
+        let isStale = false;
+        if (rawQuestions && Object.keys(rawQuestions).length > 0) {
+            for (const val of Object.values(rawQuestions)) {
+                try {
+                    const parsed = JSON.parse(val);
+                    if (!parsed.answers || parsed.answers.length < 2 || parsed.answers.some((a: any) => a?.content === "Option C" || a?.content === "Option D")) {
+                        isStale = true;
+                        break;
+                    }
+                } catch {
+                    isStale = true;
+                    break;
+                }
+            }
+        }
+
+        if (isStale) {
+            await this.redisClient.del(hashKey);
+            rawQuestions = {};
+        }
+
+        if (rawQuestions && Object.keys(rawQuestions).length > 0) {
+            return rawQuestions;
+        }
+
+        const quiz = await this.gameRepository.getQuizByGameId(gameId);
+        if (!quiz || !quiz.questions || quiz.questions.length === 0) {
+            return null;
+        }
+
+        const payload: Record<string, string> = {};
+        for (const question of quiz.questions) {
+            const validAnswers = (question.answers || []).filter((a: any) => a && (typeof a === 'string' ? a.trim() : (a.content && String(a.content).trim())));
+            const answersToStore = validAnswers.length >= 2 ? validAnswers : [
+                { a_id: 1, qu_id: question.qu_id, content: question.correct_answer || "Option A" },
+                { a_id: 2, qu_id: question.qu_id, content: "Option B" },
+                { a_id: 3, qu_id: question.qu_id, content: "Option C" },
+                { a_id: 4, qu_id: question.qu_id, content: "Option D" },
+            ];
+            payload[String(question.qu_id)] = JSON.stringify({
+                qu_id: question.qu_id,
+                quiz_id: question.quiz_id,
+                content: question.content,
+                correct_answer: question.correct_answer,
+                answers: answersToStore,
+            });
+        }
+
+        if (Object.keys(payload).length === 0) {
+            return null;
+        }
+
+        await this.redisClient.hset(hashKey, payload);
+        const ttlSeconds = Math.max(Math.ceil((expiresTime - Date.now()) / 1000), 60);
+        await this.redisClient.expire(hashKey, ttlSeconds);
+
+        rawQuestions = await this.redisClient.hgetall(hashKey);
+        return rawQuestions;
+    }
+
+    private async autoStartQuestions(gameId: number, gamePin: string, expiresTime: number) {
         try {
             const game = await this.gameRepository.getGameById(gameId);
             if (!game) {
@@ -255,14 +308,7 @@ export default class GameSocketHandler {
                 return;
             }
 
-            const hashKey = `quiz:${gameId}:questions`;
-            let rawQuestions = await this.redisClient.hgetall(hashKey);
-
-            if (!rawQuestions || Object.keys(rawQuestions).length === 0) {
-                console.warn(`[autoStartQuestions] No questions for game ${gameId}. Retrying in 2s...`);
-                await this.sleep(2000);
-                rawQuestions = await this.redisClient.hgetall(hashKey);
-            }
+            const rawQuestions = await this.hydrateQuestionsToRedis(gameId, expiresTime);
 
             if (!rawQuestions || Object.keys(rawQuestions).length === 0) {
                 console.error(`[autoStartQuestions] Still no questions for game ${gameId}.`);
@@ -271,6 +317,18 @@ export default class GameSocketHandler {
                 });
                 return;
             }
+
+            const startedKey = `game:started:${game.game_id}`;
+            const ttlSeconds = Math.max(Math.ceil((expiresTime - Date.now()) / 1000) + 60, 60);
+            await this.redisClient.set(startedKey, '1', 'EX', ttlSeconds);
+
+            console.log(`[Scheduled Game Monitor] Game ${game.game_id} (PIN: ${gamePin}) starting now`);
+
+            this.broadcastToRoom(
+                gamePin,
+                GameSocketHandler.Events.START_GAME_READY,
+                { gameId: game.game_id, message: 'Game is ready to start!' }
+            );
 
             const questionDurationMs = 10000; // 10 seconds per question
             console.log(`[autoStartQuestions] Starting game ${gameId} with ${Object.keys(rawQuestions).length} questions`);
@@ -290,7 +348,7 @@ export default class GameSocketHandler {
         const leaderboardKey = `game:leaderboard:${gamePin}`;
 
         try {
-            await this.redisClient.del(leaderboardKey);
+            await this.redisClient.expire(leaderboardKey, 86400);
 
             const hashKey = `quiz:${gameId}:questions`;
             const rawQuestions = await this.redisClient.hgetall(hashKey);
@@ -303,9 +361,11 @@ export default class GameSocketHandler {
                 return;
             }
 
-            const questionIds = Object.keys(rawQuestions);
-            let remaining = questionIds.length;
-            console.log(`[runQuestionLoop] Starting loop for game ${gameId}, ${questionIds.length} questions, ${questionDurationMs}ms each`);
+            const questionIds = Object.keys(rawQuestions).sort((a, b) => Number(a) - Number(b));
+            const totalQuestions = questionIds.length;
+            let remaining = totalQuestions;
+            let questionIndex = 1;
+            console.log(`[runQuestionLoop] Starting loop for game ${gameId}, ${totalQuestions} questions, ${questionDurationMs}ms each`);
 
             for (const questionId of questionIds) {
                 const cancelled = await this.redisClient.get(cancelKey);
@@ -331,15 +391,18 @@ export default class GameSocketHandler {
                         await this.redisClient.del(...prevAnswerKeys);
                     }
 
-                    console.log(`[runQuestionLoop] Broadcasting question ${questionId} to room ${gamePin} (remaining: ${remaining})`);
+                    console.log(`[runQuestionLoop] Broadcasting question ${questionId} (${questionIndex}/${totalQuestions}) to room ${gamePin}`);
                     this.broadcastToRoom(gamePin, GameSocketHandler.Events.QUESTION, {
                         question: safeQuestion,
                         windowStart,
                         windowEnd,
-                        remaining
+                        remaining,
+                        questionIndex,
+                        totalQuestions
                     });
 
                     remaining--;
+                    questionIndex++;
 
                     await this.sleep(questionDurationMs);
 
@@ -371,6 +434,8 @@ export default class GameSocketHandler {
             // Clean up Redis game state
             await this.redisClient.del(
                 `game:state:${gamePin}`,
+                `game:started:${gamePin}`,
+                `game:started:${gameId}`,
                 `game:players:${gamePin}`,
                 `game:window:${gameId}:start`,
                 `game:window:${gameId}:end`,

@@ -94,10 +94,10 @@ class GameRepository {
     async createQuizForGame(game_id: number, title: string) {
         // check if existing
         const existing = await this.dbClient
-        .select()
-        .from(quizzes)
-        .where(eq(quizzes.game_id, game_id))
-        .limit(1);
+            .select()
+            .from(quizzes)
+            .where(eq(quizzes.game_id, game_id))
+            .limit(1);
         if (existing && existing.length > 0) {
             throw new Error('Quiz already exists for this game');
         }
@@ -162,7 +162,7 @@ class GameRepository {
                     content: item.content,
                     correct_answer: item.correct_answer,
                 }).returning();
-                
+
                 if (item.answers && item.answers.length > 0) {
                     for (const answerContent of item.answers) {
                         await tx.insert(answers).values({
@@ -171,7 +171,7 @@ class GameRepository {
                         });
                     }
                 }
-                
+
                 created.push(questionRow);
             }
             return created;
@@ -188,22 +188,65 @@ class GameRepository {
 
         // fetch all answers for the quiz's questions at once
         const questionIds = questionRows.map(q => q.qu_id);
-        const allAnswers = questionIds.length > 0 
+        const allAnswers = questionIds.length > 0
             ? await this.dbClient.select().from(answers).where(inArray(answers.qu_id, questionIds))
             : [];
 
-        // map answers to their respective questions
-        const questionsWithAnswers: QuestionWithAnswers[] = questionRows.map(q => ({
-            ...q,
-            answers: allAnswers.filter(a => a.qu_id === q.qu_id) || [],
-        }));
+        const questionsWithAnswers: QuestionWithAnswers[] = [];
+        for (const q of questionRows) {
+            let qAnswers = allAnswers.filter(a => a.qu_id === q.qu_id) || [];
+            const hasGenericDefaults = qAnswers.some(a =>
+                a.content === "Option C" || a.content === "Option D" || (typeof a.content === "string" && a.content.endsWith(" (B)"))
+            );
+
+            if (qAnswers.length < 2 || hasGenericDefaults) {
+                const correct = (q.correct_answer || "Option A").trim();
+                let defaultChoices: string[] = [];
+                if (correct.toLowerCase() === "true" || correct.toLowerCase() === "false") {
+                    defaultChoices = ["True", "False"];
+                } else {
+                    defaultChoices = [
+                        correct,
+                        `Not ${correct}`,
+                        "All of the above",
+                        "None of the above",
+                    ];
+                }
+
+                try {
+                    await this.dbClient.delete(answers).where(eq(answers.qu_id, q.qu_id));
+                } catch {
+
+                }
+
+                const insertedAnswers: any[] = [];
+                for (const choiceText of defaultChoices) {
+                    try {
+                        const [inserted] = await this.dbClient.insert(answers).values({
+                            qu_id: q.qu_id,
+                            content: choiceText,
+                        }).returning();
+                        if (inserted) insertedAnswers.push(inserted);
+                    } catch (err) {
+                        console.error(err)
+                    }
+                }
+                qAnswers = insertedAnswers.length >= 2 ? insertedAnswers : defaultChoices.map((c, idx) => ({
+                    a_id: idx + 1,
+                    qu_id: q.qu_id,
+                    content: c,
+                }));
+            }
+            questionsWithAnswers.push({ ...q, answers: qAnswers });
+        }
+
         return {
             ...quiz,
             questions: questionsWithAnswers,
         };
     }
 
-     async getGamesByHostId(hostId: number) {
+    async getGamesByHostId(hostId: number) {
         const result = await this.dbClient.select().from(games).where(eq(games.host_id, hostId));
         return result;
     }
@@ -230,12 +273,25 @@ class GameRepository {
         return userResult[0] || null;
     }
 
-    // Update question by id
-    async updateQuestion(questionId: number, content: string, correct_answer: string) {
+    // Update question by id, and re-insert answers if provided
+    async updateQuestion(questionId: number, content: string, correct_answer: string, answersList?: string[]) {
         const result = await this.dbClient.update(questions)
             .set({ content, correct_answer })
             .where(eq(questions.qu_id, questionId))
             .returning();
+
+        if (answersList && Array.isArray(answersList) && answersList.length > 0) {
+            await this.dbClient.delete(answers).where(eq(answers.qu_id, questionId));
+            for (const answerContent of answersList) {
+                if (answerContent && answerContent.trim()) {
+                    await this.dbClient.insert(answers).values({
+                        qu_id: questionId,
+                        content: answerContent.trim(),
+                    });
+                }
+            }
+        }
+
         return result[0] || null;
     }
 
@@ -276,7 +332,7 @@ class GameRepository {
         }
     }
 
-    async bounceNicknameFromGame(){
+    async bounceNicknameFromGame() {
 
     }
 

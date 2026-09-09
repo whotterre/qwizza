@@ -155,9 +155,14 @@ export const joinGame = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Valid nickname is required' });
         }
         const result = await gameService.joinGame(pin, nickname.toUpperCase());
+
+        const game = await gameRepo.getGameByPIN(pin);
+        const gameId = game ? game.game_id : undefined;
+
         return res.status(200).json({
             message: "Successfully joined game",
-            result
+            result,
+            game_id: gameId,
         });
     } catch (err) {
         const message = getErrorMessage(err);
@@ -215,7 +220,7 @@ export const updateQuestionController = async (req: Request, res: Response) => {
     try {
         const creator = req.user;
         const { questionId } = req.params as any;
-        const { content, correct_answer } = req.body;
+        const { content, correct_answer, answers } = req.body;
         if (!creator) return res.status(401).json({ error: 'Unauthorized' });
         if (!questionId) return res.status(400).json({ error: 'Missing question id' });
         if (!content || !correct_answer) {
@@ -225,7 +230,7 @@ export const updateQuestionController = async (req: Request, res: Response) => {
         const fullUser = await userRepo.getUserById(creator.id);
         if (!fullUser) return res.status(401).json({ error: 'User not found' });
 
-        const updated = await gameService.updateQuestion(fullUser, Number(questionId), content, correct_answer);
+        const updated = await gameService.updateQuestion(fullUser, Number(questionId), content, correct_answer, answers);
         return res.status(200).json({ question: updated });
     } catch (err) {
         const message = getErrorMessage(err);
@@ -409,7 +414,7 @@ export const getFinalLeaderboardController = async (req: Request, res: Response)
         const { gameId } = req.params as any;
         if (!gameId) return res.status(400).json({ error: 'Missing game id' });
 
-        const leaderboard = await gameService.getFinalLeaderboard(Number(gameId));
+        const leaderboard = await gameService.getFinalLeaderboard(gameId);
         if (!leaderboard || leaderboard.length === 0) {
             return res.status(404).json({ error: 'No leaderboard found for this game' });
         }
