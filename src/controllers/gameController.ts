@@ -98,6 +98,35 @@ export const addQuestionsController = async (req: Request, res: Response) => {
     }
 }
 
+export const deleteQuizController = async (req: Request, res: Response) => {
+    try {
+        const creator = req.user;
+        const { quizId } = req.params as any;
+
+        if (!creator) return res.status(401).json({ error: 'Unauthorized' });
+        if (!quizId) return res.status(400).json({ error: 'Missing quiz id' });
+
+        const fullUser = await userRepo.getUserById(creator.id);
+        if (!fullUser) return res.status(401).json({ error: 'User not found' });
+
+        const deletedQuiz = await gameService.deleteQuiz(fullUser, Number(quizId));
+        return res.status(200).json({ message: 'Quiz deleted successfully', quiz: deletedQuiz });
+    } catch (err) {
+        const message = getErrorMessage(err);
+        console.error('deleteQuizController error:', message);
+        if (message.includes('not found')) {
+            return res.status(404).json({ error: message });
+        }
+        if (message.includes('Only the host')) {
+            return res.status(403).json({ error: message });
+        }
+        if (message.includes('cannot be deleted after the game has started')) {
+            return res.status(409).json({ error: message });
+        }
+        return res.status(400).json({ error: message });
+    }
+}
+
 export const initializeGameController = async (req: Request, res: Response) => {
     try {
         const creator = req.user;

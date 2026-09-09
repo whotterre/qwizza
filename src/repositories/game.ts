@@ -119,6 +119,28 @@ class GameRepository {
         return result[0];
     }
 
+    async deleteQuizWithContent(quizId: number) {
+        return this.dbClient.transaction(async (tx) => {
+            const quizRows = await tx.select().from(quizzes).where(eq(quizzes.q_id, quizId)).limit(1);
+            const quiz = quizRows[0];
+            if (!quiz) {
+                return null;
+            }
+
+            const questionRows = await tx.select().from(questions).where(eq(questions.quiz_id, quizId));
+            const questionIds = questionRows.map((question) => question.qu_id);
+
+            if (questionIds.length > 0) {
+                await tx.delete(answers).where(inArray(answers.qu_id, questionIds));
+                await tx.delete(questions).where(inArray(questions.qu_id, questionIds));
+            }
+
+            await tx.delete(quizzes).where(eq(quizzes.q_id, quizId));
+
+            return quiz;
+        });
+    }
+
     async getQuestionById(questionId: number) {
         const result = await this.dbClient.select().from(questions).where(eq(questions.qu_id, questionId)).limit(1);
         return result[0] || null;

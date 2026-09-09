@@ -116,6 +116,43 @@ class GameService {
         return created;
     }
 
+    async deleteQuiz(creator: User, quizId: number) {
+        const quiz = await this.gameRepo.getQuizById(quizId);
+        if (!quiz) throw new Error('Quiz not found');
+
+        const game = await this.gameRepo.getGameById(quiz.game_id);
+        if (!game) throw new Error('Game not found');
+        if (game.host_id !== creator.id) throw new Error('Only the host can delete this quiz');
+
+        const stateKey = `game:state:${game.gamePin}`;
+        const startedByPinKey = `game:started:${game.gamePin}`;
+        const startedByIdKey = `game:started:${game.game_id}`;
+
+        const [isLive, startedByPin, startedById] = await Promise.all([
+            this.redisClient.exists(stateKey),
+            this.redisClient.exists(startedByPinKey),
+            this.redisClient.exists(startedByIdKey),
+        ]);
+
+        if (isLive || startedByPin || startedById) {
+            throw new Error('Quiz cannot be deleted after the game has started');
+        }
+
+        const deleted = await this.gameRepo.deleteQuizWithContent(quizId);
+        if (!deleted) {
+            throw new Error('Quiz not found');
+        }
+
+        await Promise.allSettled([
+            this.redisClient.del(`quiz:${game.game_id}:questions`),
+            this.redisClient.del(`game:current_question:${game.game_id}`),
+            this.redisClient.del(`game:window:${game.game_id}:start`),
+            this.redisClient.del(`game:window:${game.game_id}:end`),
+        ]);
+
+        return deleted;
+    }
+
     async initializeGame(gamePin: string, user: User) {
         const game = await this.gameRepo.getGameByPIN(gamePin)
         if (!game) throw new Error('Game not found')
@@ -403,13 +440,26 @@ class GameService {
     async getFinalLeaderboard(gameId: number) {
         const leaderboardKey = `final_leaderboard:game:${gameId}`;
         const raw = await this.redisClient.get(leaderboardKey);
-        if (!raw) return null;
-        try {
-            return JSON.parse(raw);
-        } catch (err) {
-            console.error(`Failed to parse leaderboard for game ${gameId}:`, err);
-            return null;
+        if (raw) {
+            try {
+                return JSON.parse(raw);
+            } catch (err) {
+                console.error(`Failed to parse leaderboard for game ${gameId}:`, err);
+            }
         }
+
+        const game = await this.gameRepo.getGameById(gameId);
+        if (!game) return null;
+
+        const fallbackLeaderboardKey = `game:leaderboard:${game.gamePin}`;
+        const fallbackRaw = await this.redisClient.zrevrange(fallbackLeaderboardKey, 0, -1, 'WITHSCORES');
+        if (!fallbackRaw || fallbackRaw.length === 0) return null;
+
+        const fallbackLeaderboard = [] as { nickname: string; score: number }[];
+        for (let i = 0; i < fallbackRaw.length; i += 2) {
+            fallbackLeaderboard.push({ nickname: fallbackRaw[i], score: parseFloat(fallbackRaw[i + 1]) });
+        }
+        return fallbackLeaderboard;
     }
 }
 
