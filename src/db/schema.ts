@@ -1,9 +1,7 @@
-import { integer, pgEnum, pgTable, varchar, text, boolean, date, serial } from "drizzle-orm/pg-core";
+import { integer, pgEnum, pgTable, varchar, text, boolean, date, serial, timestamp } from "drizzle-orm/pg-core";
 
 export const rolesEnum = pgEnum("roles", ["player", "host"]);
 
-// User table
-import { timestamp } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
     id: serial("id").primaryKey(),

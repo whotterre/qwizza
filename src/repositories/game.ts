@@ -6,7 +6,7 @@ import { QuizData } from "../services/game"
 import { Question, QuestionWithAnswers, Quiz } from "../types/types"
 
 class GameRepository {
-    private dbClient: NodePgDatabase
+    private readonly dbClient: NodePgDatabase
 
     constructor(db: NodePgDatabase) {
         this.dbClient = db
@@ -22,7 +22,6 @@ class GameRepository {
         try {
             const pin = generatePIN()
 
-            // Ensure we pass JS Date objects (or ISO strings) consistently
             const scheduledDate = scheduled_at instanceof Date ? scheduled_at : new Date(scheduled_at);
             const expiryDate = expires_at instanceof Date ? expires_at : new Date(expires_at);
 
@@ -36,8 +35,8 @@ class GameRepository {
             } as any).returning();
 
             return result[0];
-        } catch (e) {
-            // Error handling for createGame
+        } catch (err) {
+            console.log(err)
         }
 
     }
