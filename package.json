@@ -7,7 +7,8 @@
     "dev": "tsc src/server.ts",
     "start": "node ./dist/server.js",
     "build": "tsc",
-    "migrate": "npx drizzle-kit push --force --verbose",
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
